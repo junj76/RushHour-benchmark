@@ -7,6 +7,7 @@ import com.junj.device.logcat.startLogcatProcess
 import com.junj.device.process.destroyProcessTree
 import com.junj.device.swap.initSwapByType
 import com.junj.domain.ExperimentResults
+import com.junj.domain.TestClock
 import com.junj.domain.app.appNameSet
 import com.junj.domain.app.globalAppInfos
 import com.junj.experiment.ExperimentRunner
@@ -21,41 +22,51 @@ import com.junj.output.reporting.SummaryReporter
 import com.junj.output.reporting.calculateSummary
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.runBlocking
+import kotlin.random.Random
 
 fun main(args: Array<String>) = runBlocking {
-    rebootDevice()
+//    rebootDevice()
     val config = parseArgs(args)
     val output = ExperimentOutputPaths(config.outputDirectory)
     output.create()
     CommandDiagnostics.attach(output.directory)
     val logger = Logger(output.directory)
     val results = ExperimentResults()
-    val apps = globalAppInfos.filter { it.name in appNameSet[config.appSetNumber] }
+    var apps = globalAppInfos
+        .filter { it.name in appNameSet[config.appSetNumber] }
+        .shuffled(Random(config.randomSeed))
+    logger.log(
+        LogType.SUMMARY,
+        "randomSeed=${config.randomSeed}, appOrder=${apps.joinToString { it.name }}",
+    )
 
     initSwapByType(config.swapType, config.flashSwapDeviceSizeMb, logger)
 
+    val clock = TestClock()
     val runner = ExperimentRunner(
         adb = ProcessAdbExecutor,
         apps = apps,
         results = results,
         logger = logger,
         config = config,
+        clock = clock,
     )
-    val testStartNs = System.nanoTime()
     val samplingJob = SamplingJob(
         collector = MetricsCollector(ProcessAdbExecutor),
         results = results,
         logger = logger,
         intervalMs = config.sampleIntervalMs,
+        clock = clock,
     ).start(this)
     val logcatProcess = startLogcatProcess(output.logcat)
 
     try {
         for (round in 1..config.testRoundCount) {
             runner.runTestRound(round)
+            apps = apps.reversed()
         }
     } finally {
-        val elapsedNs = System.nanoTime() - testStartNs
+        val elapsedMs = clock.elapsedMs()
         samplingJob.cancelAndJoin()
         destroyProcessTree(logcatProcess)
 
@@ -63,6 +74,7 @@ fun main(args: Array<String>) = runBlocking {
         val summary = calculateSummary(
             launches = results.launches,
             samples = results.samples,
+            survivals = results.survivals,
             appCount = apps.size,
             testRoundCount = config.testRoundCount,
             lmkdCount = lmkdCount,
@@ -73,7 +85,7 @@ fun main(args: Array<String>) = runBlocking {
             logger.log(LogType.SUMMARY, "no samples collected: check the sampling error above")
         }
         CommandDiagnostics.printSummary()
-        logger.log(LogType.SUMMARY, "Test round runtime: ${elapsedNs / 1_000_000_000}s")
+        logger.log(LogType.SUMMARY, "Test round runtime: ${elapsedMs / 1_000}s")
         saveCsv(results, output, config.sampleIntervalMs)
         logger.close()
     }

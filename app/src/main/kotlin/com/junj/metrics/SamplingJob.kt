@@ -1,6 +1,7 @@
 package com.junj.metrics
 
 import com.junj.domain.ExperimentResults
+import com.junj.domain.TestClock
 import com.junj.output.logging.LogType
 import com.junj.output.logging.Logger
 import kotlinx.coroutines.CancellationException
@@ -17,14 +18,20 @@ class SamplingJob(
     private val results: ExperimentResults,
     private val logger: Logger,
     private val intervalMs: Long,
+    private val clock: TestClock,
 ) {
     fun start(scope: CoroutineScope): Job = scope.launch(Dispatchers.IO) {
-        println("Starting sampling job")
+        println("Starting sampling job (fixed interval ${intervalMs}ms)")
 
+        var tick = 0L
         var consecutiveFailures = 0
         while (isActive) {
+            // 按测试时钟对齐到固定节拍（main 的做法），避免采集耗时导致的节拍漂移
+            val waitMs = tick * intervalMs - clock.elapsedMs()
+            if (waitMs > 0) delay(waitMs.milliseconds)
+
             try {
-                val item = collector.collect(results.samples.size)
+                val item = collector.collect(clock.elapsedMs())
                 results.samples += item
                 logger.log(LogType.SAMPLE, item)
                 consecutiveFailures = 0
@@ -43,7 +50,7 @@ class SamplingJob(
                 }
             }
 
-            delay(intervalMs.milliseconds)
+            tick = clock.elapsedMs() / intervalMs + 1
         }
     }
 }

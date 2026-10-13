@@ -24,7 +24,7 @@ fun parseVmstat(output: String): VmstatResult? {
         .lineSequence()
         .filter { it.isNotBlank() }
         .drop(2)
-        .firstOrNull()
+        .lastOrNull()
         ?.trim()
         ?.split(Regex("""\s+"""))
         ?: return null

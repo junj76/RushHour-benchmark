@@ -1,0 +1,21 @@
+{
+    "app": "wechat",
+    "package": "com.tencent.mm",
+    "validation": "NEEDS_OCR_INTEGRATION",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "success_evidence": "screenshot",
+    "hierarchy": {
+        "compressed": false,
+        "max_depth": 100
+    },
+    "contact": "test",
+    "ocr_contact_text": "test",
+    "message": "hi",
+    "send_attempts": 1,
+    "return_to_home": true,
+    "home": [],
+    "steps": []
+}

@@ -1,0 +1,81 @@
+{
+    "app": "jd",
+    "package": "com.jingdong.app.mall",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "native_window_size": true,
+    "home_native": true,
+    "return_reserve_seconds": 3.0,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {"text": "首页"},
+            {"text": "我的"}
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_search",
+            "action": "click",
+            "clickBounds": true,
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "selectors": [
+                {
+                    "resourceId": "com.jingdong.app.mall:id/b2q",
+                    "description": "搜索栏"
+                },
+                {
+                    "description": "搜索栏",
+                    "className": "android.widget.RelativeLayout"
+                }
+            ],
+            "expect": [[{"className": "android.widget.EditText"}]]
+        },
+        {
+            "name": "input_keyword",
+            "action": "input",
+            "native_input": true,
+            "input_timeout": 2,
+            "selectors": [{"className": "android.widget.EditText"}],
+            "value": "鼠标"
+        },
+        {
+            "name": "submit_search",
+            "action": "enter",
+            "expect": [
+                [
+                    {
+                        "textContains": "鼠标",
+                        "minYRatio": 0.3,
+                        "className": "android.widget.TextView"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_search_page",
+            "action": "back",
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [[{"className": "android.widget.EditText"}]]
+        },
+        {
+            "name": "dismiss_keyboard",
+            "action": "back",
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [[{"className": "android.widget.EditText"}]]
+        },
+        {
+            "name": "return_to_home",
+            "action": "back",
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [[{"text": "首页"}, {"text": "我的"}]]
+        }
+    ]
+}

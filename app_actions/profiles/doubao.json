@@ -1,0 +1,79 @@
+{
+    "app": "doubao",
+    "package": "com.larus.nova",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {
+                "className": "android.widget.EditText"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "input_date_question",
+            "action": "input",
+            "selectors": [
+                {
+                    "className": "android.widget.EditText"
+                }
+            ],
+            "value": "今天日期"
+        },
+        {
+            "name": "send_message",
+            "action": "click",
+            "selectors": [
+                {
+                    "description": "发送",
+                    "clickable": true
+                },
+                {
+                    "descriptionContains": "发送",
+                    "clickable": true
+                },
+                {
+                    "text": "发送",
+                    "clickable": true
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "textContains": "今天日期"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "wait_for_answer",
+            "action": "expect",
+            "trace_timing": true,
+            "expect": [
+                [
+                    {
+                        "textMatches": "(?s).*(?:\\d{1,2}\\s*月\\s*\\d{1,2}\\s*[日号]|\\d{4}[-/.]\\d{1,2}[-/.]\\d{1,2}).*"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "expect",
+            "native_expect": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "className": "android.widget.EditText"
+                    }
+                ]
+            ]
+        }
+    ]
+}

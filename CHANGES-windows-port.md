@@ -29,7 +29,7 @@
 | 11 | `.gitignore` | 增加 `run.log` / `run-*.log` |
 | 12 | `test.ps1`（新增） | Windows 版批跑脚本（对应同事的 `test.sh`） |
 | 13 | `gradle/wrapper/gradle-wrapper.properties` | 单独提交：Gradle 发行版改用腾讯镜像（仅本机网络便利，可随时还原） |
-| 14 | `device/swap/SwapController.kt`、`cli/AppCommand.kt`、`config/ExperimentConfig.kt` | flash swap 防写死保护：创建文件前检查 `/data` 剩余空间；新增 `-s/--flash-swap-size-mb`；本地默认值 4096MB → 1024MB |
+| 14 | `device/swap/SwapController.kt`、`cli/AppCommand.kt`、`config/ExperimentConfig.kt` | flash swap 防写死保护：创建文件前检查 `/data` 剩余空间；新增 `-f/--flash-swap-size-mb`（合并 main 后短选项从 `-s` 改为 `-f`，因为 main 的 `-s` 是随机种子）；本地默认值 4096MB → 1024MB |
 | 15 | `domain/metrics/SamplingItem.kt`、`metrics/parser/ParseZramStat.kt`、`metrics/MetricsCollector.kt`、`output/csv/CsvWriter.kt` | hyperhold 下刷/回抬统计接入每 10s 采样：新增 `parseHyperholdReport()`（解析 `/sys/block/zram0/hyperhold_report` 的 "hyperhold io stat" 段），`sample.csv` 新增 21 列（含 ReadAmp/WriteAmp、PF 命中率、读写带宽） |
 
 ## 三、Windows 上的关键实现细节（都是踩过的坑）
@@ -155,7 +155,7 @@ git rebase origin/main                     # 冲突：改文件 → git add → 
    `可用空间 >= swap 文件大小 + 512MB`，不满足就直接报错退出（**不会再写死手机**）；
 3. `swapon` 之后会检查 `/proc/swaps` 里有没有这个文件，没有就直接报错中止
    （upstream 不检查 mkswap/swapon 的退出码，否则整轮实验会悄悄跑成"没有 swap"）；
-4. 默认大小本地改为 1024MB，可用 `-s` 覆盖：`.\gradlew.bat run --args="-t 2 -a 0 -s 1024"`；
+4. 默认大小本地改为 1024MB，可用 `-f` 覆盖：`.\gradlew.bat run --args="-t 2 -a 0 -f 1024"`；
 5. 运行日志目录名带 `_flash_swap` 后缀，方便回溯。
 
 如果手机又死机了，恢复与清理：

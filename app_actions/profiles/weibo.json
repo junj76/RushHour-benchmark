@@ -1,0 +1,101 @@
+{
+    "app": "weibo",
+    "package": "com.sina.weibo",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "success_evidence": "screenshot",
+    "native_window_size": true,
+    "home_native": true,
+    "hierarchy": {
+        "compressed": false,
+        "max_depth": 100
+    },
+    "home": [
+        [
+            {
+                "resourceId": "com.sina.weibo:id/titlebarTabView_hot"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_discover",
+            "action": "click",
+            "clickBounds": true,
+            "native_expect_groups": true,
+            "selectors": [
+                {
+                    "description": "发现",
+                    "clickable": true,
+                    "minYRatio": 0.85
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.sina.weibo:id/tv_discover_search"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "open_hot_search_topic",
+            "action": "click_ocr",
+            "native_expect_groups": true,
+            "text_pattern": "[\u4e00-\u9fffA-Za-z0-9\u00b7]{6,}",
+            "minYRatio": 0.2,
+            "maxYRatio": 0.42,
+            "pick": "first",
+            "trace_timing": true,
+            "expect_timeout": 5,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.sina.weibo:id/tv_search_result_title_text"
+                    }
+                ],
+                [
+                    {
+                        "resourceId": "com.sina.weibo:id/search_item_text",
+                        "text": "\u7efc\u5408"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_discover",
+            "action": "back",
+            "native_expect_groups": true,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.sina.weibo:id/tv_discover_search"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "click",
+            "clickBounds": true,
+            "native_expect_groups": true,
+            "selectors": [
+                {
+                    "description": "首页",
+                    "clickable": true,
+                    "minYRatio": 0.85
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.sina.weibo:id/titlebarTabView_hot"
+                    }
+                ]
+            ]
+        }
+    ]
+}

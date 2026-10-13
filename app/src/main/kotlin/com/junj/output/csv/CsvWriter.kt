@@ -3,6 +3,7 @@ package com.junj.output.csv
 import com.junj.domain.ExperimentResults
 import com.junj.domain.launch.LaunchApplicationItem
 import com.junj.domain.metrics.SamplingItem
+import com.junj.domain.survival.AppSurvivalResult
 import com.junj.output.ExperimentOutputPaths
 import java.io.File
 
@@ -16,6 +17,49 @@ fun saveCsv(results: ExperimentResults, output: ExperimentOutputPaths, sampleInt
         output.sampleCsv,
         sampleIntervalMs,
     )
+    saveSurvivalResultsToCsv(
+        results.survivals,
+        output.survivalCsv,
+    )
+}
+
+fun saveSurvivalResultsToCsv(
+    results: List<AppSurvivalResult>,
+    outputFile: File,
+) {
+    outputFile.parentFile?.mkdirs()
+
+    outputFile.bufferedWriter(Charsets.UTF_8).use { writer ->
+        writer.appendLine(
+            listOf(
+                "round",
+                "launchPosition",
+                "appName",
+                "packageName",
+                "launchedPid",
+                "pidAtRoundEnd",
+                "originalProcessAlive",
+                "appCurrentlyRunning",
+            ).joinToString(",")
+        )
+
+        results.forEach { item ->
+            writer.appendLine(
+                listOf(
+                    item.round,
+                    item.launchPosition,
+                    item.appName,
+                    item.packageName,
+                    item.launchedPid ?: "",
+                    item.pidAtRoundEnd ?: "",
+                    item.originalProcessAlive,
+                    item.appCurrentlyRunning,
+                ).joinToString(",") { value ->
+                    escapeCsv(value.toString())
+                }
+            )
+        }
+    }
 }
 
 fun saveLaunchResultsToCsv(results: List<LaunchApplicationItem>, outputFile: File, ) {
@@ -24,6 +68,7 @@ fun saveLaunchResultsToCsv(results: List<LaunchApplicationItem>, outputFile: Fil
     outputFile.bufferedWriter(Charsets.UTF_8).use { writer ->
         writer.appendLine(
             listOf(
+                "launchStamp(ms)",
                 "amStartRound",
                 "amStartAppName",
                 "amStartLaunchState",
@@ -42,6 +87,7 @@ fun saveLaunchResultsToCsv(results: List<LaunchApplicationItem>, outputFile: Fil
         results.forEach { item ->
             writer.appendLine(
                 listOf(
+                    item.launchStamp,
                     item.amStartRound,
                     item.amStartAppName,
                     item.amStartLaunchState,
@@ -86,15 +132,15 @@ fun saveSampleResultsToCsv(
     outputFile.bufferedWriter(Charsets.UTF_8).use { writer ->
         writer.appendLine(
             listOf(
-                "sampleStamp",
-                "memTotal",
-                "memFree",
-                "memAvailable",
-                "swapTotal",
-                "swapFree",
-                "swapCached",
-                "psiSome",
-                "psiFull",
+                "sampleStamp(ms)",
+                "memTotal(KB)",
+                "memFree(KB)",
+                "memAvailable(KB)",
+                "swapTotal(KB)",
+                "swapFree(KB)",
+                "swapCached(KB)",
+                "psiSome(ms)",
+                "psiFull(ms)",
                 "vmstatR/runnableProcesses",
                 "vmstatB/blockedProcesses",
                 "vmstatSwpd/swapUsed(KB)",
@@ -111,15 +157,15 @@ fun saveSampleResultsToCsv(
                 "vmstatSy/kernelCpuTime(%)",
                 "vmstatId/idleCpuTime(%)",
                 "vmstatWa/waitIoCpuTime(%)",
-                "bigTemp",
-                "midTemp",
-                "littleTemp",
-                "socThermTemp",
-                "virtualSkinTemp",
-                "zramOrigDataSize",
-                "zramComprDataSize",
-                "zramMemUsedTotal",
-                "zramMemUsedMax",
+                "bigTemp(°C)",
+                "midTemp(°C)",
+                "littleTemp(°C)",
+                "socThermTemp(°C)",
+                "virtualSkinTemp(°C)",
+                "zramOrigDataSize(KB)",
+                "zramComprDataSize(KB)",
+                "zramMemUsedTotal(KB)",
+                "zramMemUsedMax(KB)",
                 "zramBdCount",
                 "zramBdReads",
                 "zramBdWrites",

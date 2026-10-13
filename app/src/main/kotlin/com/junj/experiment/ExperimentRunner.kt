@@ -2,9 +2,15 @@ package com.junj.experiment
 
 import com.junj.config.ExperimentConfig
 import com.junj.device.adb.AdbExecutor
+import com.junj.device.pid.getApplicationPid
+import com.junj.device.pid.isApplicationProcessAlive
+import com.junj.device.pid.waitForApplicationPid
+import com.junj.device.simulator.TouchSimulator
 import com.junj.domain.ExperimentResults
+import com.junj.domain.TestClock
 import com.junj.domain.app.ApplicationInfo
 import com.junj.domain.launch.LaunchApplicationItem
+import com.junj.domain.survival.AppSurvivalResult
 import com.junj.metrics.parser.CommandType
 import com.junj.metrics.parser.ResultField
 import com.junj.metrics.parser.regexFindField
@@ -19,19 +25,20 @@ class ExperimentRunner(
     private val results: ExperimentResults,
     private val logger: Logger,
     private val config: ExperimentConfig,
+    private val clock: TestClock,
 ) {
-    fun runWarmUpRound() {
-        println("===Warm up round START!===")
-        for (app in apps) {
-            println(adb.shell("am start -W -n ${app.componentName}").output)
-            sleep(15_000)
-        }
-        println("===Warm up round END!===")
-    }
+    private data class LaunchedAppProcess(
+        val launchPosition: Int,
+        val app: ApplicationInfo,
+        val launchedPid: Long?,
+    )
 
     fun runTestRound(round: Int) {
-        for (app in apps) {
+        val touchSimulator = TouchSimulator(adb)
+        val launchedProcesses = ArrayList<LaunchedAppProcess>()
+        for ((index, app) in apps.withIndex()) {
             val launchStartNs = System.nanoTime()
+            val launchStamp = clock.elapsedMs()
             val nextLaunchNs = launchStartNs + config.launchIntervalMs * 1_000_000L
             adb.rootShell("dumpsys gfxinfo ${app.packageName} reset")
             val amStartResult = adb.shell("am start -W -n ${app.componentName}")
@@ -43,26 +50,71 @@ class ExperimentRunner(
                     amStartResult.output,
                 )
             }
+            val launchedPid = waitForApplicationPid(adb, app.packageName)
+            touchSimulator.simulate(app.name)
             sleepUntil(launchStartNs + config.collectDelayMs * 1_000_000L)
+            val gfxinfo = adb.shell("dumpsys gfxinfo ${app.packageName}")
+            val meminfo = adb.shell("dumpsys meminfo ${app.packageName}")
 
             val result = LaunchApplicationItem(
+                launchStamp = launchStamp,
                 amStartRound = round,
                 amStartAppName = app.name,
                 amStartLaunchState = regexFindField(CommandType.AM_START, ResultField.LAUNCH_STATE, amStartResult.output) ?: "",
                 amStartTotalTime = regexFindField(CommandType.AM_START, ResultField.TOTAL_TIME, amStartResult.output)?.toLongOrNull() ?: 0,
                 amStartWaitTime = regexFindField(CommandType.AM_START, ResultField.WAIT_TIME, amStartResult.output)?.toLongOrNull() ?: 0,
                 amStartStatus = regexFindField(CommandType.AM_START, ResultField.STATUS, amStartResult.output) ?: "",
-                dumpsysGfxInfoJankyFrames = 0.0,
-                dumpsysGfxInfoP50RenderLat = 0,
-                dumpsysGfxInfoP90RenderLat = 0,
-                dumpsysGfxInfoP95RenderLat = 0,
-                dumpsysGfxInfoP99RenderLat = 0,
-                dumpsysMemInfoTotalPss = 0,
+                dumpsysGfxInfoJankyFrames = regexFindField(CommandType.DUMPSYS_GFXINFO, ResultField.JANKY_FRAMES_PCT, gfxinfo.output)?.toDoubleOrNull() ?: 0.0,
+                dumpsysGfxInfoP50RenderLat = regexFindField(CommandType.DUMPSYS_GFXINFO, ResultField.P50_RENDER_LAT, gfxinfo.output)?.toIntOrNull() ?: 0,
+                dumpsysGfxInfoP90RenderLat = regexFindField(CommandType.DUMPSYS_GFXINFO, ResultField.P90_RENDER_LAT, gfxinfo.output)?.toIntOrNull() ?: 0,
+                dumpsysGfxInfoP95RenderLat = regexFindField(CommandType.DUMPSYS_GFXINFO, ResultField.P95_RENDER_LAT, gfxinfo.output)?.toIntOrNull() ?: 0,
+                dumpsysGfxInfoP99RenderLat = regexFindField(CommandType.DUMPSYS_GFXINFO, ResultField.P99_RENDER_LAT, gfxinfo.output)?.toIntOrNull() ?: 0,
+                dumpsysMemInfoTotalPss = regexFindField(CommandType.DUMPSYS_MEMINFO, ResultField.TOTAL_PSS, meminfo.output)?.toIntOrNull() ?: 0,
             )
             results.launches += result
+            launchedProcesses += LaunchedAppProcess(
+                launchPosition = index + 1,
+                app = app,
+                launchedPid = launchedPid,
+            )
             logger.log(LogType.LAUNCH, result)
             sleepUntil(nextLaunchNs)
         }
+
+        val roundSurvivals = launchedProcesses.map { launched ->
+            val pidAtRoundEnd = getApplicationPid(adb, launched.app.packageName)
+            val originalProcessAlive = isApplicationProcessAlive(
+                adb = adb,
+                packageName = launched.app.packageName,
+                pid = launched.launchedPid,
+            )
+
+            AppSurvivalResult(
+                round = round,
+                launchPosition = launched.launchPosition,
+                appName = launched.app.name,
+                packageName = launched.app.packageName,
+                launchedPid = launched.launchedPid,
+                pidAtRoundEnd = pidAtRoundEnd,
+                originalProcessAlive = originalProcessAlive,
+                appCurrentlyRunning = pidAtRoundEnd != null,
+            )
+        }
+        results.survivals += roundSurvivals
+        roundSurvivals.forEach { logger.log(LogType.LAUNCH, it) }
+
+        val aliveApps = roundSurvivals.filter { it.originalProcessAlive }
+        val aliveRatio = if (roundSurvivals.isEmpty()) {
+            0.0
+        } else {
+            aliveApps.size.toDouble() / roundSurvivals.size
+        }
+        logger.log(
+            LogType.LAUNCH,
+            "round=$round, launchCnt=${roundSurvivals.size}, " +
+                "aliveCount=${aliveApps.size}, aliveAppRatio=${"%.2f".format(aliveRatio * 100)}%, " +
+                "aliveAppList=${aliveApps.map { it.appName }}",
+        )
     }
 
     private fun sleepUntil(deadlineNs: Long) {

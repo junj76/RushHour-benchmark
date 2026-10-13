@@ -22,6 +22,18 @@ logs/
 run.log
 run-*.log
 
+# Python virtual environments and generated artifacts
+.venv/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+app_actions/results/
+app_actions/captures/
+app_actions/*.pstats
+app_actions/*.bak
+app_actions/python.exe
+
 # Kotlin/Java compiler and crash artifacts
 *.class
 *.hprof

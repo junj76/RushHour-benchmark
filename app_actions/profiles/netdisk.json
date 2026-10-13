@@ -1,0 +1,69 @@
+{
+    "app": "netdisk",
+    "package": "com.baidu.netdisk",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {
+                "resourceId": "com.baidu.netdisk:id/home25ai_collapse_searchbox_content"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_search",
+            "action": "click",
+            "selectors": [
+                {
+                    "resourceId": "com.baidu.netdisk:id/home25ai_collapse_searchbox_content"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "description": "MainSearchScreen_MainSearchRoute_rootSurface"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "input_keyword",
+            "action": "input_focused",
+            "value": "test",
+            "wait_seconds": 2
+        },
+        {
+            "name": "dismiss_keyboard",
+            "action": "back",
+            "expect": [
+                [
+                    {
+                        "description": "MainSearchScreen_MainSearchRoute_rootSurface"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "back_until_home_native",
+            "home_resource_id": "com.baidu.netdisk:id/home25ai_collapse_searchbox_content",
+            "max_back": 2,
+            "return_timeout": 2,
+            "back_delay": 0.15,
+            "native_expect_groups": true,
+            "expect_timeout": 1,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.baidu.netdisk:id/home25ai_collapse_searchbox_content"
+                    }
+                ]
+            ]
+        }
+    ]
+}

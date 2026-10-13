@@ -1,0 +1,74 @@
+{
+    "app": "kuaishou",
+    "package": "com.smile.gifmaker",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "native_window_size": true,
+    "home_native": true,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {
+                "resourceId": "com.smile.gifmaker:id/root"
+            }
+        ],
+        [
+            {
+                "description": "\u9996\u9875",
+                "className": "androidx.appcompat.app.ActionBar$c"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "swipe_video_1",
+            "action": "swipe_up",
+            "duration": 0.2,
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.smile.gifmaker:id/root"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "swipe_video_2",
+            "action": "swipe_up",
+            "duration": 0.2,
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.smile.gifmaker:id/root"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "expect",
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.smile.gifmaker:id/root"
+                    }
+                ],
+                [
+                    {
+                        "description": "\u9996\u9875",
+                        "className": "androidx.appcompat.app.ActionBar$c"
+                    }
+                ]
+            ]
+        }
+    ]
+}

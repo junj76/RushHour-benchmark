@@ -1,0 +1,107 @@
+{
+    "app": "baidu",
+    "package": "com.baidu.searchbox",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "native_window_size": true,
+    "home_native": true,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {
+                "text": "\u767e\u5ea6"
+            }
+        ],
+        [
+            {
+                "text": "\u6211\u7684"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_search",
+            "action": "click",
+            "native_click": false,
+            "selectors": [
+                {
+                    "className": "android.widget.LinearLayout",
+                    "clickable": true,
+                    "minYRatio": 0.04,
+                    "maxYRatio": 0.15
+                }
+            ],
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "className": "android.widget.EditText"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "input_keyword",
+            "action": "input",
+            "native_input": true,
+            "verify_input": false,
+            "input_timeout": 2,
+            "selectors": [
+                {
+                    "className": "android.widget.EditText"
+                }
+            ],
+            "value": "\u534e\u4e2d\u79d1\u6280\u5927\u5b66"
+        },
+        {
+            "name": "submit_search",
+            "action": "click",
+            "native_click": true,
+            "click_timeout": 2,
+            "selectors": [
+                {
+                    "text": "\u641c\u7d22",
+                    "className": "android.widget.TextView",
+                    "clickable": true
+                }
+            ],
+            "native_expect_groups": true,
+            "expect_timeout": 4,
+            "expect": [
+                [
+                    {
+                        "text": "\u534e\u4e2d\u79d1\u6280\u5927\u5b66"
+                    }
+                ],
+                [
+                    {
+                        "text": "\u7efc\u5408"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "swipe_right",
+            "duration": 0.2,
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "text": "\u767e\u5ea6"
+                    }
+                ],
+                [
+                    {
+                        "text": "\u6211\u7684"
+                    }
+                ]
+            ]
+        }
+    ]
+}

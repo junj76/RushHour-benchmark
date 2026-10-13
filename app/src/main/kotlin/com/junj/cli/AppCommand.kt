@@ -1,6 +1,7 @@
 package com.junj.cli
 
 import com.github.ajalt.clikt.core.CliktCommand
+import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.validate
@@ -54,8 +55,9 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
         help = "Optional log output path",
     )
 
+    // 注意：短选项 -s 已被 main 的 --seed（随机种子）占用，这里改用 -f。
     val flashSwapSizeMb: Int? by option(
-        "-s",
+        "-f",
         "--flash-swap-size-mb",
         help = "flash swap file size in MB (default: $DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB)",
     )
@@ -65,6 +67,14 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
                 "flash-swap-size-mb must be between 64 and 16384 (got $it)"
             }
         }
+
+    val randomSeed: Int by option(
+        "-s",
+        "--seed",
+        help = "Random seed number for app launch"
+    )
+        .int()
+        .default(0)
 
     override fun run() = Unit
 }
@@ -77,6 +87,12 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
             AppSetType.MIDDLE.code -> append("_middle")
             AppSetType.HEAVY.code -> append("_heavy")
         }
+        when(command.type) {
+            0 -> append("_noSwap")
+            1 -> append("_onlyZram")
+            2 -> append("_flashSwap")
+            3 -> append("_zswap")
+        }
         command.logPath?.let { append("_$it") }
     }
     val timestamp = getTimeStamp() + suffix
@@ -84,6 +100,7 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
     return ExperimentConfig(
         swapType = command.type,
         appSetNumber = command.appSetNumber,
+        randomSeed = command.randomSeed,
         timestamp = timestamp,
         outputDirectory = File("../logs/$timestamp"),
         flashSwapDeviceSizeMb = command.flashSwapSizeMb ?: DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB,

@@ -1,0 +1,155 @@
+{
+    "app": "bilibili",
+    "package": "tv.danmaku.bili",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "home_native": true,
+    "return_reserve_seconds": 2.0,
+    "home": [
+        [
+            {
+                "resourceId": "tv.danmaku.bili:id/expand_search"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_search",
+            "action": "click",
+            "selectors": [
+                {
+                    "resourceId": "tv.danmaku.bili:id/expand_search"
+                },
+                {
+                    "description": "搜索"
+                },
+                {
+                    "text": "搜索"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "resourceId": "tv.danmaku.bili:id/search_src_text",
+                        "className": "android.widget.EditText"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "input_keyword",
+            "action": "input",
+            "selectors": [
+                {
+                    "resourceId": "tv.danmaku.bili:id/search_src_text",
+                    "className": "android.widget.EditText"
+                }
+            ],
+            "value": "科普"
+        },
+        {
+            "name": "submit_search",
+            "action": "click",
+            "selectors": [
+                {
+                    "resourceId": "tv.danmaku.bili:id/action_search"
+                },
+                {
+                    "text": "搜索"
+                },
+                {
+                    "description": "搜索"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "resourceId": "tv.danmaku.bili:id/search_fake_text",
+                        "text": "科普"
+                    }
+                ],
+                [
+                    {
+                        "resourceId": "tv.danmaku.bili:id/tab_title",
+                        "text": "综合"
+                    }
+                ],
+                [
+                    {
+                        "resourceId": "tv.danmaku.bili:id/title",
+                        "within": {
+                            "resourceId": "tv.danmaku.bili:id/recycler_view"
+                        }
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "open_first_video",
+            "action": "click",
+            "pick": "first",
+            "trace_timing": true,
+            "skip_post_check": true,
+            "selectors": [
+                {
+                    "resourceId": "tv.danmaku.bili:id/title",
+                    "within": {
+                        "resourceId": "tv.danmaku.bili:id/recycler_view"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "return_to_results",
+            "action": "back",
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "tv.danmaku.bili:id/search_fake_text",
+                        "text": "\u79d1\u666e"
+                    }
+                ],
+                [
+                    {
+                        "resourceId": "tv.danmaku.bili:id/tab_title",
+                        "text": "\u7efc\u5408"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_search_page",
+            "action": "back",
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "text": "搜索历史"
+                    },
+                    {
+                        "text": "搜索发现"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "back",
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "tv.danmaku.bili:id/expand_search"
+                    }
+                ]
+            ]
+        }
+    ]
+}

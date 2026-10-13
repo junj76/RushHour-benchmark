@@ -1,6 +1,9 @@
 package com.junj.domain.launch
 
 data class LaunchApplicationItem(
+    // Milliseconds elapsed since the start of the test run.
+    val launchStamp: Long,
+
     val amStartRound: Int,
     val amStartAppName: String,
     val amStartLaunchState: String,

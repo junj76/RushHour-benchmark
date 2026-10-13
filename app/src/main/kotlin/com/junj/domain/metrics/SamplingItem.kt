@@ -1,7 +1,8 @@
 package com.junj.domain.metrics
 
 data class SamplingItem(
-    val sampleStamp: Int,
+    // Milliseconds elapsed since the start of the test run.
+    val sampleStamp: Long,
 
     val meminfoMemTotal: Long,
     val meminfoMemFree: Long,

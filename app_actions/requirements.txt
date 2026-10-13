@@ -1,0 +1,4 @@
+uiautomator2>=3.7,<4
+numpy>=2,<3
+opencv-python>=4.10,<6
+rapidocr-onnxruntime>=1.2,<2

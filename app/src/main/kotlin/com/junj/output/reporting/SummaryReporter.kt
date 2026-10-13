@@ -2,6 +2,7 @@ package com.junj.output.reporting
 
 import com.junj.domain.launch.LaunchApplicationItem
 import com.junj.domain.metrics.SamplingItem
+import com.junj.domain.survival.AppSurvivalResult
 import com.junj.output.logging.LogType
 import com.junj.output.logging.Logger
 
@@ -13,6 +14,8 @@ data class ExperimentSummary(
     val unknownLaunchCount: Int,
     val averageResponseLatency: Long,
     val lmkdCount: Int,
+    val appAliveRatio: Double,
+    val appCurrentlyRunningRatio: Double,
     val bigTemperatureAverage: Double,
     val midTemperatureAverage: Double,
     val littleTemperatureAverage: Double,
@@ -25,6 +28,7 @@ data class ExperimentSummary(
 fun calculateSummary(
     launches: List<LaunchApplicationItem>,
     samples: List<SamplingItem>,
+    survivals: List<AppSurvivalResult>,
     appCount: Int,
     testRoundCount: Int,
     lmkdCount: Int,
@@ -51,6 +55,7 @@ fun calculateSummary(
     val firstSample = samples.firstOrNull()
     val lastSample = samples.lastOrNull()
     val divisor = (testRoundCount * appCount).coerceAtLeast(1)
+    val survivalCount = survivals.size.coerceAtLeast(1)
 
     return ExperimentSummary(
         logsPath = logsPath,
@@ -60,6 +65,8 @@ fun calculateSummary(
         unknownLaunchCount = unknown,
         averageResponseLatency = totalResponseLatency / divisor,
         lmkdCount = lmkdCount,
+        appAliveRatio = survivals.count { it.originalProcessAlive }.toDouble() / survivalCount,
+        appCurrentlyRunningRatio = survivals.count { it.appCurrentlyRunning }.toDouble() / survivalCount,
         bigTemperatureAverage = samples.sumOf { it.bigTemp } / sampleCount,
         midTemperatureAverage = samples.sumOf { it.midTemp } / sampleCount,
         littleTemperatureAverage = samples.sumOf { it.littleTemp } / sampleCount,
@@ -80,9 +87,14 @@ class SummaryReporter(private val logger: Logger) {
                 "warmLaunchCNT: ${summary.warmLaunchCount}, " +
                 "hotLaunchCnt: ${summary.hotLaunchCount}, " +
                 "unknownLaunchCnt: ${summary.unknownLaunchCount}\n" +
-                "avgResponseLat: ${summary.averageResponseLatency}"
+                "avgResponseLat: ${summary.averageResponseLatency}ms"
         )
-        logger.log(LogType.SUMMARY, "lmkdCnt: ${summary.lmkdCount}")
+        logger.log(
+            LogType.SUMMARY,
+            "lmkdCnt: ${summary.lmkdCount}, " +
+                "originalProcessAliveRatio: ${"%.2f".format(summary.appAliveRatio * 100)}%, " +
+                "appCurrentlyRunningRatio: ${"%.2f".format(summary.appCurrentlyRunningRatio * 100)}%",
+        )
         logger.log(
             LogType.SUMMARY,
             "bigTempAvg: ${"%.2f".format(summary.bigTemperatureAverage)}, " +

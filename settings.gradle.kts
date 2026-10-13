@@ -10,5 +10,5 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "0.8.0"
 }
 
-rootProject.name = "android_app_launch_test"
+rootProject.name = "rushhour_benchmark"
 include("app")
