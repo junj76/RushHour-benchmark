@@ -187,6 +187,13 @@ fun saveSampleResultsToCsv(
                 "hhPfNeverUsedObjs",
                 "hhPfNeverUsedBytes",
                 "hhPfHitRateX100",
+                "hhPfDemandGroups",
+                "hhPfDemandObjs",
+                "hhPfDemandHitObjs",
+                "hhPfDemandNeverObjs",
+                "hhPfDemandHitRateX100",
+                "hhPfCachePages",
+                "hhPfCachePagesPeak",
                 "hhInflightPages",
                 "hhInflightPagesPeak",
                 "hhMovedInBytes",
@@ -195,15 +202,13 @@ fun saveSampleResultsToCsv(
                 "hhCachePagesPeak",
                 "hhReadBw(KB/s)",
                 "hhWriteBw(KB/s)",
-                "slMode",
-                "slSampleRate",
-                "slInCount",
-                "slInSampled",
-                "slInMeanNs",
-                "slInP50Ns",
-                "slInP90Ns",
-                "slInP99Ns",
-                "slInMaxNs",
+                "swLatEnabled",
+                "swLatTotal",
+                "swLatSampled",
+                "swLatAvgNs",
+                "swLatP90Ns",
+                "swLatP99Ns",
+                "swLatMaxNs",
             ).joinToString(",")
         )
 
@@ -267,6 +272,16 @@ fun saveSampleResultsToCsv(
                     item.hhPfNeverUsedBytes,
                     if (item.hhPfHitObjs + item.hhPfNeverUsedObjs > 0)
                         item.hhPfHitObjs * 100 / (item.hhPfHitObjs + item.hhPfNeverUsedObjs) else 0,
+                    
+                    item.hhPfDemandGroups,
+                    item.hhPfDemandObjs,
+                    item.hhPfDemandHitObjs,
+                    item.hhPfDemandNeverObjs,
+                    if (item.hhPfDemandHitObjs + item.hhPfDemandNeverObjs > 0)
+                        item.hhPfDemandHitObjs * 100 /
+                            (item.hhPfDemandHitObjs + item.hhPfDemandNeverObjs) else 0,
+                    item.hhPfCachePages,
+                    item.hhPfCachePagesPeak,
                     item.hhInflightPages,
                     item.hhInflightPagesPeak,
                     item.hhMovedInBytes,
@@ -277,15 +292,13 @@ fun saveSampleResultsToCsv(
                     else (item.hhReadInBytes - results[index - 1].hhReadInBytes) / sampleIntervalMs,
                     if (index == 0) item.hhWriteUfsBytes / sampleIntervalMs
                     else (item.hhWriteUfsBytes - results[index - 1].hhWriteUfsBytes) / sampleIntervalMs,
-                    item.slMode,
-                    item.slSampleRate,
-                    item.slInCount,
-                    item.slInSampled,
-                    item.slInMeanNs,
-                    item.slInP50Ns,
-                    item.slInP90Ns,
-                    item.slInP99Ns,
-                    item.slInMaxNs,
+                    item.swLatEnabled,
+                    item.swLatTotal,
+                    item.swLatSampled,
+                    item.swLatAvgNs,
+                    item.swLatP90Ns,
+                    item.swLatP99Ns,
+                    item.swLatMaxNs,
                 ).joinToString(",") { value->
                     escapeCsv(value.toString())
                 }

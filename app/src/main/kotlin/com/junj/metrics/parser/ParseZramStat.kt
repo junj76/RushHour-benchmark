@@ -72,6 +72,13 @@ data class HyperholdStatResult(
     val movedInPages: Long,
     val cachePages: Long,
     val cachePagesPeak: Long,
+        // ===== 新增：按需预取 / 批量预取的 cache 占用 =====
+    val pfDemandGroups: Long,
+    val pfDemandObjs: Long,
+    val pfDemandHitObjs: Long,
+    val pfDemandNeverObjs: Long,
+    val pfCachePages: Long,
+    val pfCachePagesPeak: Long,
 )
 
 /**
@@ -119,59 +126,52 @@ fun parseHyperholdReport(output: String): HyperholdStatResult? {
         movedInPages = v("moved_in_pages"),
         cachePages = v("cache_pages"),
         cachePagesPeak = v("cache_pages_peak"),
+                
+        pfDemandGroups = v("pf_demand_groups"),
+        pfDemandObjs = v("pf_demand_objs"),
+        pfDemandHitObjs = v("pf_demand_hit_objs"),
+        pfDemandNeverObjs = v("pf_demand_never_objs"),
+        pfCachePages = v("pf_cache_pages"),
+        pfCachePagesPeak = v("pf_cache_pages_peak"),
     )
 }
 
 //新增 swap延迟统计
-data class SwapLatencyResult(
-    val mode: Long,
-    val sampleRate: Long,
-    val inCount: Long,
-    val inSampled: Long,
-    val inMeanNs: Long,
-    val inP50Ns: Long,
-    val inP90Ns: Long,
-    val inP99Ns: Long,
-    val inMaxNs: Long,
+data class SwapinLatencyResult(
+    val enabled: Long,
+    val total: Long,
+    val sampled: Long,
+    val avgNs: Long,
+    val p90Ns: Long,
+    val p99Ns: Long,
+    val maxNs: Long,
 )
 
 /**
- * 解析 /sys/kernel/mm/swap_latency/summary（只含 swap_in_major 一段）。
- *
- *   mode: on
- *   sample_rate: 16
- *   --- swap_in_major ---
- *   count: ...
- *
+ * 解析 /sys/kernel/mm/swapin_latency/stats（key: value 六行）。
  * 内核未打补丁时返回 null。
  */
-fun parseSwapLatencySummary(output: String): SwapLatencyResult? {
-    if (output.isBlank() || !output.contains("swap_in_major"))
+fun parseSwapinLatencyStats(output: String): SwapinLatencyResult? {
+    if (output.isBlank() || !output.contains("total_swapins"))
         return null
 
     val m = mutableMapOf<String, Long>()
     output.lineSequence().forEach { raw ->
         val t = raw.trim()
-        if (t.startsWith("---") || t.startsWith("mode:"))
-            return@forEach
         val i = t.indexOf(':')
-        if (i <= 0)
-            return@forEach
-        val value = t.substring(i + 1).trim().toLongOrNull() ?: return@forEach
-        m[t.substring(0, i).trim()] = value
+        if (i <= 0) return@forEach
+        val v = t.substring(i + 1).trim().toLongOrNull() ?: return@forEach
+        m[t.substring(0, i).trim()] = v
     }
-
     fun v(k: String) = m[k] ?: 0L
 
-    return SwapLatencyResult(
-        mode = if (output.contains("mode: on")) 1L else 0L,
-        sampleRate = v("sample_rate"),
-        inCount = v("count"),
-        inSampled = v("sampled"),
-        inMeanNs = v("mean_ns"),
-        inP50Ns = v("p50_ns"),
-        inP90Ns = v("p90_ns"),
-        inP99Ns = v("p99_ns"),
-        inMaxNs = v("max_ns"),
+    return SwapinLatencyResult(
+        enabled = 1,                       /* 能读到 stats 就算已注册；enable 状态单独读 */
+        total = v("total_swapins"),
+        sampled = v("sampled_swapins"),
+        avgNs = v("avg_ns"),
+        p90Ns = v("p90_ns"),
+        p99Ns = v("p99_ns"),
+        maxNs = v("max_ns"),
     )
 }

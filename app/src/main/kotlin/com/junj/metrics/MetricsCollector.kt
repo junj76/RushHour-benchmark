@@ -6,7 +6,7 @@ import com.junj.domain.metrics.SamplingItem
 import com.junj.metrics.parser.CommandType
 import com.junj.metrics.parser.ResultField
 import com.junj.metrics.parser.parseHyperholdReport
-import com.junj.metrics.parser.parseSwapLatencySummary
+import com.junj.metrics.parser.parseSwapinLatencyStats
 import com.junj.metrics.parser.parseVmstat
 import com.junj.metrics.parser.parseZramBdStatResult
 import com.junj.metrics.parser.parseZramMmStatResult
@@ -59,7 +59,8 @@ internal val SAMPLE_SCRIPT: String = listOf(
     "echo $SAMPLE_MARKER $SECTION_HYPERHOLD",
     "cat /sys/block/zram0/hyperhold_report",
     "echo $SAMPLE_MARKER $SECTION_SWAP_LAT",
-    "cat /sys/kernel/mm/swap_latency/summary",
+    "cat /sys/kernel/mm/swapin_latency/stats",//新路径
+    "echo \"swlat_enabled=$(cat /sys/kernel/mm/swapin_latency/enable 2>/dev/null)\"",
 ).joinToString("\n")
 
 class MetricsCollector(
@@ -130,8 +131,10 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
             hyperholdSection,
         )
     }
-
-    val swapLatency = parseSwapLatencySummary(sections[SECTION_SWAP_LAT].orEmpty())
+    //从分段里取（复用你已有的 labeledLong()）
+    val swapLatSection = sections[SECTION_SWAP_LAT].orEmpty()
+    val swapinLat = parseSwapinLatencyStats(swapLatSection)
+    val swapinLatEnabled = labeledLong(swapLatSection, "swlat_enabled")
 
     return SamplingItem(
         sampleStamp = sampleStamp,
@@ -199,15 +202,20 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
         hhCachePages = hyperhold?.cachePages ?: 0,
         hhCachePagesPeak = hyperhold?.cachePagesPeak ?: 0,
 
-        slMode = swapLatency?.mode ?: 0,
-        slSampleRate = swapLatency?.sampleRate ?: 0,
-        slInCount = swapLatency?.inCount ?: 0,
-        slInSampled = swapLatency?.inSampled ?: 0,
-        slInMeanNs = swapLatency?.inMeanNs ?: 0,
-        slInP50Ns = swapLatency?.inP50Ns ?: 0,
-        slInP90Ns = swapLatency?.inP90Ns ?: 0,
-        slInP99Ns = swapLatency?.inP99Ns ?: 0,
-        slInMaxNs = swapLatency?.inMaxNs ?: 0,
+        hhPfDemandGroups = hyperhold?.pfDemandGroups ?: 0,
+        hhPfDemandObjs = hyperhold?.pfDemandObjs ?: 0,
+        hhPfDemandHitObjs = hyperhold?.pfDemandHitObjs ?: 0,
+        hhPfDemandNeverObjs = hyperhold?.pfDemandNeverObjs ?: 0,
+        hhPfCachePages = hyperhold?.pfCachePages ?: 0,
+        hhPfCachePagesPeak = hyperhold?.pfCachePagesPeak ?: 0,
+
+        swLatEnabled = swapinLatEnabled,
+        swLatTotal = swapinLat?.total ?: 0,
+        swLatSampled = swapinLat?.sampled ?: 0,
+        swLatAvgNs = swapinLat?.avgNs ?: 0,
+        swLatP90Ns = swapinLat?.p90Ns ?: 0,
+        swLatP99Ns = swapinLat?.p99Ns ?: 0,
+        swLatMaxNs = swapinLat?.maxNs ?: 0,
     )
 }
 

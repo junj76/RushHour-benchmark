@@ -68,15 +68,19 @@ data class SamplingItem(
     val hhMovedInPages: Long = 0,
     val hhCachePages: Long = 0,
     val hhCachePagesPeak: Long = 0,
-
-        // ===== swap-in（MAJOR fault）延迟，内核累积统计量 =====
-    val slMode: Long = 0,
-    val slSampleRate: Long = 0,
-    val slInCount: Long = 0,
-    val slInSampled: Long = 0,
-    val slInMeanNs: Long = 0,
-    val slInP50Ns: Long = 0,
-    val slInP90Ns: Long = 0,
-    val slInP99Ns: Long = 0,
-    val slInMaxNs: Long = 0,
+    
+    val hhPfDemandGroups: Long = 0,
+    val hhPfDemandObjs: Long = 0,
+    val hhPfDemandHitObjs: Long = 0,
+    val hhPfDemandNeverObjs: Long = 0,
+    val hhPfCachePages: Long = 0,
+    val hhPfCachePagesPeak: Long = 0,
+    // ===== swap-in 延迟（major fault，fault 端到端） =====
+    val swLatEnabled: Long = 0,
+    val swLatTotal: Long = 0,
+    val swLatSampled: Long = 0,
+    val swLatAvgNs: Long = 0,
+    val swLatP90Ns: Long = 0,
+    val swLatP99Ns: Long = 0,
+    val swLatMaxNs: Long = 0,
 )

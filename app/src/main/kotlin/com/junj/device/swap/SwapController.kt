@@ -89,9 +89,10 @@ fun enableZswap() {
 }
 
 fun initSwapByType(type: Int, flashSwapDeviceSizeMb: Int, logger: Logger) {
-    // ★ 新增：每轮开始时重置并开启 swap 延迟统计（内核没打补丁时这几条会静默失败）
-    runAdbRootShellCommand("echo rate=16 > /sys/kernel/mm/swap_latency/control")
-    runAdbRootShellCommand("echo reset > /sys/kernel/mm/swap_latency/control")
+        // 每轮开始：设采样率 → 清零并开启统计
+    runAdbRootShellCommand("echo 30 > /sys/kernel/mm/swapin_latency/sample_rate")
+    runAdbRootShellCommand("echo 1  > /sys/kernel/mm/swapin_latency/reset")
+    runAdbRootShellCommand("echo 1  > /sys/kernel/mm/swapin_latency/enable")
 
     // 新增: 每轮开始调整cache level 
     runAdbRootShellCommand("echo 'cachelevel=7' > /sys/block/zram0/hyperhold_cache")

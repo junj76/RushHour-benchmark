@@ -2,7 +2,10 @@ package com.junj
 
 import com.junj.cli.parseArgs
 import com.junj.device.adb.ProcessAdbExecutor
+import com.junj.device.lifecycle.disableStayAwake
+import com.junj.device.lifecycle.enableStayAwake
 import com.junj.device.lifecycle.rebootDevice
+import com.junj.device.lifecycle.wakeAndUnlockDevice
 import com.junj.device.logcat.startLogcatProcess
 import com.junj.device.process.destroyProcessTree
 import com.junj.device.swap.initSwapByType
@@ -41,6 +44,10 @@ fun main(args: Array<String>) = runBlocking {
     )
 
     initSwapByType(config.swapType, config.flashSwapDeviceSizeMb, logger)
+
+    // 屏幕必须保持亮着：息屏会让 am start 的测量失真、app_actions 直接报 "Screen is off"
+    wakeAndUnlockDevice(ProcessAdbExecutor)
+    enableStayAwake(ProcessAdbExecutor)
 
     val clock = TestClock()
     val runner = ExperimentRunner(
@@ -87,6 +94,7 @@ fun main(args: Array<String>) = runBlocking {
         CommandDiagnostics.printSummary()
         logger.log(LogType.SUMMARY, "Test round runtime: ${elapsedMs / 1_000}s")
         saveCsv(results, output, config.sampleIntervalMs)
+        disableStayAwake(ProcessAdbExecutor)
         logger.close()
     }
 }

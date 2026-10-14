@@ -2,6 +2,7 @@ package com.junj.experiment
 
 import com.junj.config.ExperimentConfig
 import com.junj.device.adb.AdbExecutor
+import com.junj.device.lifecycle.wakeAndUnlockDevice
 import com.junj.device.pid.getApplicationPid
 import com.junj.device.pid.isApplicationProcessAlive
 import com.junj.device.pid.waitForApplicationPid
@@ -37,6 +38,8 @@ class ExperimentRunner(
         val touchSimulator = TouchSimulator(adb)
         val launchedProcesses = ArrayList<LaunchedAppProcess>()
         for ((index, app) in apps.withIndex()) {
+            // 息屏后 am start -W 的测量与 app_actions 的 UI 动作都会失效，所以每次启动前先唤醒并解锁
+            wakeAndUnlockDevice(adb)
             val launchStartNs = System.nanoTime()
             val launchStamp = clock.elapsedMs()
             val nextLaunchNs = launchStartNs + config.launchIntervalMs * 1_000_000L

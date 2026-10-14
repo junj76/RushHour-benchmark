@@ -36,10 +36,13 @@ class TouchSimulatorTest {
     fun `app action command uses venv python and unified runner options`() {
         val actionsDirectory = Paths.get("/tmp/app_actions")
         val simulator = TouchSimulator(RecordingAdb(), actionsDirectory)
+        val expectedPython = simulator.venvPythonPath().toString()
 
+        // 解释器路径按平台而异（Windows: .venv\Scripts\python.exe，WSL/Linux: .venv/bin/python3），
+        // 所以这里用 venvPythonPath() 作为期望值，只固定后面的统一参数。
         assertEquals(
             listOf(
-                "/tmp/app_actions/.venv/bin/python3",
+                expectedPython,
                 "run_app.py",
                 "--time",
                 "10",
@@ -48,8 +51,11 @@ class TouchSimulatorTest {
                 "--app",
                 "bilibili",
             ),
-            simulator.buildAppActionCommand("bilibili"),
+            simulator.buildAppActionCommand("bilibili", expectedPython),
         )
+
+        // 目录里没有 .venv 时不应该凭空认为解释器存在。
+        assertEquals(null, simulator.locateVenvInterpreter())
     }
 
     private class RecordingAdb : AdbExecutor {

@@ -1,5 +1,7 @@
 package com.junj.device.lifecycle
 
+import com.junj.device.adb.AdbExecutor
+import com.junj.device.adb.ProcessAdbExecutor
 import com.junj.device.adb.runAdbRootShellCommand
 import com.junj.device.adb.runAdbShellCommand
 import java.util.concurrent.TimeUnit
@@ -41,7 +43,10 @@ fun rebootDevice(timeoutSeconds: Long = DEFAULT_REBOOT_TIMEOUT_SECONDS) {
 
             if (bootCompleted && bootIdChanged) {
                 println("Android device has finished booting.")
-                wakeAndUnlockDevice()
+                check(wakeAndUnlockDevice(ProcessAdbExecutor)) {
+                    "Failed to wake and unlock the Android device after reboot."
+                }
+                stabilizeAfterBoot()
                 return
             }
 
@@ -61,20 +66,51 @@ fun rebootDevice(timeoutSeconds: Long = DEFAULT_REBOOT_TIMEOUT_SECONDS) {
     error("Timed out after ${timeoutSeconds}s waiting for Android to boot. Last status: $lastStatus")
 }
 
-private fun wakeAndUnlockDevice() {
-    val wakeResult = runAdbRootShellCommand("input keyevent KEYCODE_WAKEUP")
-    check(wakeResult.exitCode == 0) { "Failed to wake Android device: ${wakeResult.output.trim()}" }
+/**
+ * 唤醒屏幕并解除"非安全"锁屏。
+ *
+ * 这一步很关键：设备息屏后，`am start -W` 的测量结果不再可信，
+ * 而 app_actions 的 Python 脚本会直接以 `Screen is off; unlock and open the app home first`
+ * 失败退出（表现为"手机一直没反应"）。所以测试开始前、以及每次启动 App 之前都要调用它。
+ *
+ * 失败只返回 false（由调用方决定是否告警），不会抛异常中断整轮测试。
+ */
+fun wakeAndUnlockDevice(adb: AdbExecutor): Boolean {
+    val wakeResult = adb.rootShell("input keyevent KEYCODE_WAKEUP")
+    if (wakeResult.exitCode != 0) {
+        println("[device] 唤醒屏幕失败：${wakeResult.output.trim()}")
+        return false
+    }
     Thread.sleep(SCREEN_WAKE_WAIT_MS)
 
-    val unlockResult = runAdbRootShellCommand("wm dismiss-keyguard")
-    check(unlockResult.exitCode == 0) {
-        "Failed to dismiss Android keyguard: ${unlockResult.output.trim()}"
+    val unlockResult = adb.rootShell("wm dismiss-keyguard")
+    if (unlockResult.exitCode != 0) {
+        println("[device] 解除锁屏失败：${unlockResult.output.trim()}")
+        return false
     }
     Thread.sleep(KEYGUARD_DISMISS_WAIT_MS)
-    println("Android display is awake and the non-secure keyguard was dismissed.")
+    return true
+}
 
-    val waitStartNs = System.nanoTime()
+/** 测试期间保持屏幕常亮（`svc power stayon true`，接电源时生效），避免中途息屏。 */
+fun enableStayAwake(adb: AdbExecutor = ProcessAdbExecutor): Boolean {
+    val result = adb.rootShell("svc power stayon true")
+    if (result.exitCode == 0) {
+        println("[device] 已开启屏幕常亮（svc power stayon true）。")
+        return true
+    }
+    println("[device] 开启屏幕常亮失败（可忽略）：${result.output.trim()}")
+    return false
+}
+
+/** 恢复系统的自动息屏行为。 */
+fun disableStayAwake(adb: AdbExecutor = ProcessAdbExecutor) {
+    adb.rootShell("svc power stayon false")
+}
+
+private fun stabilizeAfterBoot() {
     println("Starting post-boot stabilization wait: $POST_BOOT_STABILIZATION_WAIT_MS ms.")
+    val waitStartNs = System.nanoTime()
     Thread.sleep(POST_BOOT_STABILIZATION_WAIT_MS)
     val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - waitStartNs)
     println("Post-boot stabilization wait finished: elapsed=${elapsedMs} ms.")
