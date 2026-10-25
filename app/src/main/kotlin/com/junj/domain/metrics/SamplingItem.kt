@@ -73,6 +73,7 @@ data class SamplingItem(
     val hhPfDemandObjs: Long = 0,
     val hhPfDemandHitObjs: Long = 0,
     val hhPfDemandNeverObjs: Long = 0,
+    val hhPfDemandHitBytes: Long = 0,
     val hhPfCachePages: Long = 0,
     val hhPfCachePagesPeak: Long = 0,
     // ===== swap-in 延迟（major fault，fault 端到端） =====

@@ -10,10 +10,12 @@ data class ExperimentOutputPaths(val directory: File) {
     val survivalCsv: File get() = File(directory, "survival.csv")
     val summary: File get() = File(directory, "summary.txt")
     val logcat: File get() = File(directory, "logcat.log")
+    /** 内核环形缓冲里与杀进程相关的行（dmesg -w 采集）。 */
+    val kernelLog: File get() = File(directory, "kernel.log")
 
     fun create() {
         directory.mkdirs()
-        listOf(sampleLog, launchLog, sampleCsv, launchCsv, survivalCsv, summary)
+        listOf(sampleLog, launchLog, sampleCsv, launchCsv, survivalCsv, summary, logcat, kernelLog)
             .forEach { it.createNewFile() }
     }
 }

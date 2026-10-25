@@ -6,7 +6,9 @@ import com.junj.device.lifecycle.disableStayAwake
 import com.junj.device.lifecycle.enableStayAwake
 import com.junj.device.lifecycle.rebootDevice
 import com.junj.device.lifecycle.wakeAndUnlockDevice
-import com.junj.device.logcat.startLogcatProcess
+import com.junj.device.logcat.countLmkKills
+import com.junj.device.logcat.countProcessKills
+import com.junj.device.logcat.startLogcatProcesses
 import com.junj.device.process.destroyProcessTree
 import com.junj.device.swap.initSwapByType
 import com.junj.domain.ExperimentResults
@@ -65,7 +67,7 @@ fun main(args: Array<String>) = runBlocking {
         intervalMs = config.sampleIntervalMs,
         clock = clock,
     ).start(this)
-    val logcatProcess = startLogcatProcess(output.logcat)
+    val logcatProcesses = startLogcatProcesses(output.logcat, output.kernelLog)
 
     try {
         for (round in 1..config.testRoundCount) {
@@ -75,9 +77,10 @@ fun main(args: Array<String>) = runBlocking {
     } finally {
         val elapsedMs = clock.elapsedMs()
         samplingJob.cancelAndJoin()
-        destroyProcessTree(logcatProcess)
+        logcatProcesses.forEach { destroyProcessTree(it) }
 
-        val lmkdCount = output.logcat.useLines { lines -> lines.count() }
+        val lmkdCount = countLmkKills(output.logcat, output.kernelLog)
+        //val processKillCount = countProcessKills(output.logcat, output.kernelLog)
         val summary = calculateSummary(
             launches = results.launches,
             samples = results.samples,
@@ -85,6 +88,7 @@ fun main(args: Array<String>) = runBlocking {
             appCount = apps.size,
             testRoundCount = config.testRoundCount,
             lmkdCount = lmkdCount,
+            //processKillCount = processKillCount,
             logsPath = "logs/${config.timestamp}/*.log",
         )
         SummaryReporter(logger).report(summary)

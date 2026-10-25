@@ -14,6 +14,7 @@ data class ExperimentSummary(
     val unknownLaunchCount: Int,
     val averageResponseLatency: Long,
     val lmkdCount: Int,
+    //val processKillCount: Int,
     val appAliveRatio: Double,
     val appCurrentlyRunningRatio: Double,
     val bigTemperatureAverage: Double,
@@ -32,6 +33,7 @@ fun calculateSummary(
     appCount: Int,
     testRoundCount: Int,
     lmkdCount: Int,
+    //processKillCount: Int,
     logsPath: String,
 ): ExperimentSummary {
     var cold = 0
@@ -65,6 +67,7 @@ fun calculateSummary(
         unknownLaunchCount = unknown,
         averageResponseLatency = totalResponseLatency / divisor,
         lmkdCount = lmkdCount,
+        //processKillCount = processKillCount,
         appAliveRatio = survivals.count { it.originalProcessAlive }.toDouble() / survivalCount,
         appCurrentlyRunningRatio = survivals.count { it.appCurrentlyRunning }.toDouble() / survivalCount,
         bigTemperatureAverage = samples.sumOf { it.bigTemp } / sampleCount,
@@ -92,8 +95,10 @@ class SummaryReporter(private val logger: Logger) {
         logger.log(
             LogType.SUMMARY,
             "lmkdCnt: ${summary.lmkdCount}, " +
+            //    "processKillCnt: ${summary.processKillCount}, " +
                 "originalProcessAliveRatio: ${"%.2f".format(summary.appAliveRatio * 100)}%, " +
                 "appCurrentlyRunningRatio: ${"%.2f".format(summary.appCurrentlyRunningRatio * 100)}%",
+
         )
         logger.log(
             LogType.SUMMARY,

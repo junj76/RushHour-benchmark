@@ -49,7 +49,45 @@ read_in = d("hhReadInBytes")
 w_raw, w_ufs = d("hhWriteRawBytes"), d("hhWriteUfsBytes")
 pf, hit, miss = d("hhPfObjs"), d("hhPfHitObjs"), d("hhPfNeverUsedObjs")
 peak = max(n(r, "hhInflightPagesPeak") for r in rows)
-cache_peak = max(n(r, "hhCachePagesPeak") for r in rows)
+
+# hyperhold_cache 占用情况
+CACHE_PAGE_BYTES = 4096
+
+
+def sampled_average(key):
+    """
+    按采样时间对当前值求平均。
+    cache_pages 是瞬时值，不能对累计计数器做差值。
+    """
+    values = [n(r, key) for r in rows]
+
+    weighted_sum = 0
+    total_ms = 0
+
+    for current, next_row in zip(rows, rows[1:]):
+        dt = (
+            n(next_row, "sampleStamp(ms)")
+            - n(current, "sampleStamp(ms)")
+        )
+        if dt > 0:
+            weighted_sum += n(current, key) * dt
+            total_ms += dt
+
+    if total_ms > 0:
+        return weighted_sum / total_ms
+
+    return sum(values) / max(len(values), 1)
+
+
+cache_values = [n(r, "hhCachePages") for r in rows]
+cache_avg_pages = sampled_average("hhCachePages")
+cache_peak_sampled = max(cache_values, default=0)
+
+pf_cache_values = [n(r, "hhPfCachePages") for r in rows]
+pf_cache_avg_pages = sampled_average("hhPfCachePages")
+pf_cache_peak_sampled = max(pf_cache_values, default=0)
+
+
 
 out("")
 out("===== hyperhold 统计（analyze_hh.py 追加） =====")
@@ -59,32 +97,57 @@ out("回抬读入            : %d 字节 = %.0f 个 32KB extent" % (read_in, rea
 out("下刷写入 UFS        : %d 字节 = %.0f 个 32KB extent" % (w_ufs, w_ufs / 32768))
 out("下刷收集压缩字节    : %d 字节" % w_raw)
 out("写放大              : %.3f" % (w_ufs / max(w_raw, 1)))
-# out("应用预热对象        : %d（命中 %d, 未用 %d, 未结算 %d）" % (pf, hit, miss, pf - hit - miss))
+
+
 
 dm, dm_hit, dm_never = d("hhPfDemandObjs"), d("hhPfDemandHitObjs"), d("hhPfDemandNeverObjs")
 dm_groups = d("hhPfDemandGroups")
 avg_group = dm / max(dm_groups, 1)
 
-
+out("")
 out("===== 内存代价 =====")
 out("搬回 zram           : %d 字节 / %d 个对象" % (d("hhMovedInBytes"), d("hhMovedInPages")))
-out("在飞缓冲峰值        : %d 页 = %.1f MB" % (peak, peak * 4 / 1024.0))
-out("cache 常驻峰值(全量): %d 页" % cache_peak)
-# out("cache 常驻峰值(仅应用预热): %d 页" % d("hhPfCachePagesPeak"))
+
+# out("在飞缓冲峰值        : %d 页 = %.1f MiB" % (peak, peak * CACHE_PAGE_BYTES / 1024.0 / 1024.0))
+
+out("cache 平均数据区    : %.1f 页 = %.1f MiB" % ( cache_avg_pages, cache_avg_pages * CACHE_PAGE_BYTES / 1024.0 / 1024.0 ))
+
+out("cache 采样峰值      : %d 页 = %.1f MiB"   % ( cache_peak_sampled, cache_peak_sampled * CACHE_PAGE_BYTES / 1024.0 / 1024.0))
+
+# out("应用预热cache平均值 : %.1f 页 = %.1f MiB" % ( pf_cache_avg_pages, pf_cache_avg_pages * CACHE_PAGE_BYTES / 1024.0 / 1024.0))
+
+# out("应用预热cache采样峰值: %d 页 = %.1f MiB" % ( pf_cache_peak_sampled, pf_cache_peak_sampled * CACHE_PAGE_BYTES / 1024.0 / 1024.0 ))
 
 out("")
-out("===== 按需回抬 / 预取（缺页触发）=====")
+out("===== 预取（应用预热）=====")
+pf_pending = pf - hit - miss
+# out("应用预热对象        : %d（命中 %d, 未用 %d, 未结算 %d）" % (pf, hit, miss, pf_pending))
+out("应用预热对象        : %d（命中 %d, 未用 %d）"% (pf, hit, miss))
+out("应用预热命中率      : %.1f%%（%d / %d）"
+    % (100.0 * hit / max(pf, 1), hit, pf))
+
+out("")
+out("===== 预取（缺页触发）=====")
 out("按需回抬            : %d 次, %d 字节, 平均 %.0f 字节/次" % (io_cnt, io_bytes, io_bytes / max(io_cnt, 1))) # 发生了几次、每次要多少 只有对象真正在 UFS extent 里、且确实要发 IO 时（hyperhold_fault_out_check() 返回 0）才计数
-out("平均读放大    : 32KB / %.0f 字节 = %.1f 倍（为取 1 个对象读回一整条 extent）" 
-    % (avg_obj, 32768.0 / max(avg_obj, 1)))
+# out("平均读放大    : 32KB / %.0f 字节 = %.1f 倍（为取 1 个对象读回一整条 extent）" 
+#    % (avg_obj, 32768.0 / max(avg_obj, 1)))
 out("预取组数            : %d 组, 平均每组 %.1f 个对象" % (dm_groups, avg_group))  # 读回了几条 extent
 out("预取对象            : %d（命中 %d, 未用 %d, 未结算 %d）" % (dm, dm_hit, dm_never, dm - dm_hit - dm_never))  # 这些 extent 里有多少个搭便车读入的对象
-out("预取命中率(已结算)  : %.1f%%" % (100.0 * dm_hit / max(dm_hit + dm_never, 1)))
-out("预取命中率(占全部)  : %.1f%%" % (100.0 * dm_hit / max(dm, 1)))
+out("预取命中率          : %.1f%%（%d / %d）"
+    % (100.0 * dm_hit / max(dm, 1), dm_hit, dm))
 if dm_groups > 0:
-    out("每组平均命中        : %.2f 个/组（基准 1.00 = 每组只被用掉 1 个）" % (dm_hit / dm_groups))
+    out("每组平均命中        : %.2f 个/组" % (dm_hit / dm_groups))
 else:
     out("每组平均命中        : —（本轮没有预取样本）")
+
+dm_bytes = d("hhPfDemandHitBytes")
+demand_read_in = dm_groups * 32768
+out("预取命中对象字节    : %d" % dm_bytes)
+out("按需回抬读入        : %d 字节（%d 组 × 32KB）" % (demand_read_in, dm_groups))
+# out("读放大(按需·毛)     : %.1f 倍（%d ÷ %d）"
+#     % (demand_read_in / max(io_bytes, 1), demand_read_in, io_bytes))
+out("读放大     : %.1f 倍（扣掉命中的 %d 字节）"
+    % ((demand_read_in - dm_bytes) / max(io_bytes, 1), dm_bytes))
 
 # ===================== 2. swap-in 延迟（fault 端到端，major fault） =====================
 if "swLatTotal" in l:

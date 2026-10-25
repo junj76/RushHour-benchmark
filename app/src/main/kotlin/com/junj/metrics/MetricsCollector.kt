@@ -206,6 +206,7 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
         hhPfDemandObjs = hyperhold?.pfDemandObjs ?: 0,
         hhPfDemandHitObjs = hyperhold?.pfDemandHitObjs ?: 0,
         hhPfDemandNeverObjs = hyperhold?.pfDemandNeverObjs ?: 0,
+        hhPfDemandHitBytes = hyperhold?.pfDemandHitBytes ?: 0,
         hhPfCachePages = hyperhold?.pfCachePages ?: 0,
         hhPfCachePagesPeak = hyperhold?.pfCachePagesPeak ?: 0,
 

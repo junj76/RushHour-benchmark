@@ -191,6 +191,7 @@ fun saveSampleResultsToCsv(
                 "hhPfDemandObjs",
                 "hhPfDemandHitObjs",
                 "hhPfDemandNeverObjs",
+                "hhPfDemandHitBytes",
                 "hhPfDemandHitRateX100",
                 "hhPfCachePages",
                 "hhPfCachePagesPeak",
@@ -277,9 +278,10 @@ fun saveSampleResultsToCsv(
                     item.hhPfDemandObjs,
                     item.hhPfDemandHitObjs,
                     item.hhPfDemandNeverObjs,
-                    if (item.hhPfDemandHitObjs + item.hhPfDemandNeverObjs > 0)
-                        item.hhPfDemandHitObjs * 100 /
-                            (item.hhPfDemandHitObjs + item.hhPfDemandNeverObjs) else 0,
+                    item.hhPfDemandHitBytes,
+                    if (item.hhPfObjs > 0)
+                        item.hhPfHitObjs * 100 / item.hhPfObjs
+                    else 0,
                     item.hhPfCachePages,
                     item.hhPfCachePagesPeak,
                     item.hhInflightPages,

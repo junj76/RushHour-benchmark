@@ -77,6 +77,7 @@ data class HyperholdStatResult(
     val pfDemandObjs: Long,
     val pfDemandHitObjs: Long,
     val pfDemandNeverObjs: Long,
+    val pfDemandHitBytes: Long,
     val pfCachePages: Long,
     val pfCachePagesPeak: Long,
 )
@@ -131,6 +132,7 @@ fun parseHyperholdReport(output: String): HyperholdStatResult? {
         pfDemandObjs = v("pf_demand_objs"),
         pfDemandHitObjs = v("pf_demand_hit_objs"),
         pfDemandNeverObjs = v("pf_demand_never_objs"),
+        pfDemandHitBytes = v("pf_demand_hit_bytes"),
         pfCachePages = v("pf_cache_pages"),
         pfCachePagesPeak = v("pf_cache_pages_peak"),
     )
