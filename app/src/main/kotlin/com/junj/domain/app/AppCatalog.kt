@@ -1,5 +1,7 @@
 package com.junj.domain.app
 
+// 原国内应用集合及启动入口，保留供后续切换。
+/*
 val appNameSet = arrayOf(
     arrayOf(
         "douyin", "bilibili", "zhihu", "wps", "doubao", "xiecheng",
@@ -32,3 +34,34 @@ val globalAppInfos = arrayOf(
     ApplicationInfo("zhihu", "com.zhihu.android", "com.zhihu.android/.app.ui.activity.MainActivity"),
     ApplicationInfo("kuake", "com.quark.browser", "com.quark.browser/com.ucpro.MainActivity"),
 )
+*/
+
+// 启动入口来自当前测试手机；空字符串表示装好应用后在启动时查询。
+val globalAppInfos = arrayOf(
+    ApplicationInfo("youtube_shorts", "com.google.android.youtube", "com.google.android.youtube/.app.honeycomb.Shell\$HomeActivity"),
+    ApplicationInfo("youtube", "com.google.android.youtube", "com.google.android.youtube/.app.honeycomb.Shell\$HomeActivity"),
+    ApplicationInfo("aliexpress", "com.alibaba.aliexpresshd", "com.alibaba.aliexpresshd/com.aliexpress.app.FirstActivity"),
+    ApplicationInfo("booking", "com.booking", "com.booking/.startup.HomeActivity"),
+    // 暂未安装，短测先排除，装好后取消注释。
+    // ApplicationInfo("chatgpt", "com.openai.chatgpt", ""),
+    // 暂时移出测试，保留入口供后续恢复。
+    // ApplicationInfo("foodpanda", "com.global.foodpanda.android", "com.global.foodpanda.android/de.foodora.android.ui.launcher.LauncherActivity"),
+    ApplicationInfo("github", "com.github.android", "com.github.android/.main.MainActivity"),
+    ApplicationInfo("gmail", "com.google.android.gm", "com.google.android.gm/.ConversationListActivityGmail"),
+    ApplicationInfo("gmap", "com.google.android.apps.maps", "com.google.android.apps.maps/com.google.android.maps.MapsActivity"),
+    ApplicationInfo("google", "com.google.android.googlequicksearchbox", "com.google.android.googlequicksearchbox/.SearchActivity"),
+    ApplicationInfo("gtranslate", "com.google.android.apps.translate", "com.google.android.apps.translate/.TranslateActivity"),
+    ApplicationInfo("ins", "com.instagram.android", "com.instagram.android/.activity.MainTabActivity"),
+    ApplicationInfo("pinterest", "com.pinterest", "com.pinterest/.activity.PinterestActivity"),
+    ApplicationInfo("reddit", "com.reddit.frontpage", "com.reddit.frontpage/launcher.default"),
+    // ApplicationInfo("spotify", "com.spotify.music", ""),
+    // ApplicationInfo("tiktok", "com.zhiliaoapp.musically", ""),
+    ApplicationInfo("tripadvisor", "com.tripadvisor.tripadvisor", "com.tripadvisor.tripadvisor/com.tripadvisor.android.ui.launcher.LauncherActivity"),
+    ApplicationInfo("twitch", "tv.twitch.android.app", "tv.twitch.android.app/.core.LandingActivity"),
+    ApplicationInfo("uber", "com.ubercab", "com.ubercab/.presidio.app.core.root.RootActivity"),
+    ApplicationInfo("weather", "de.wetteronline.wetterapp", ""),
+    // 保留脚本别名 wiki，实际测试应用为 wikiHow，与 profiles/wiki.json 一致。
+    ApplicationInfo("wiki", "com.wikihow.wikihowapp", "com.wikihow.wikihowapp/.MainTabActivity"),
+)
+
+// -a N 选取上面列表前 N 项；Shorts 和 YouTube 是同一包名的两个测试场景。

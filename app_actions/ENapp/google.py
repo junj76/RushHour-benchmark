@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
 
 
 def main():
@@ -80,8 +81,7 @@ def main():
         )
         d.implicitly_wait(0)
 
-        if d.app_current().get("package") != package:
-            raise RuntimeError("请先将 Google 打开到前台")
+        require_app_ui(d, package, timeout=args.timeout)
 
         width, height = d.window_size()
 

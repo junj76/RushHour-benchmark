@@ -8,6 +8,8 @@ import math
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
+from flow_controls import capture, instagram_feed, like_instagram_post, wait_value, save_failure
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -16,12 +18,12 @@ BASE_DIR = Path(__file__).resolve().parent
 def main():
 
     step_labels = {
-        "browse_up": "向上浏览",
-        "browse_down": "向下浏览",
-        "double_tap_1": "第一次双击",
-        "double_tap_2": "第二次双击",
         "browse_down_1": "第一次向下浏览",
+        "browse_down_2": "第二次向下浏览",
+        # "browse_down_3": "第三次向下浏览",
         "browse_up_1": "第一次向上浏览",
+        "browse_up_2": "第二次向上浏览",
+        # "browse_up_3": "第三次向上浏览",
     }
 
     parser = argparse.ArgumentParser()
@@ -51,6 +53,7 @@ def main():
         "steps": [],
     }
 
+    d = None
     row = None
     step_started = None
 
@@ -61,61 +64,60 @@ def main():
             time.monotonic() - connect_started, 3
         )
 
-        if d.app_current().get("package") != package:
-            raise RuntimeError(
-                "运行前请先打开 Instagram 首页"
+        require_app_ui(d, package, timeout=args.timeout)
+
+        d.implicitly_wait(0)
+
+        def locate_feed():
+            def find():
+                screen = capture(d, package)
+                feed = instagram_feed(screen, config["selectors"]["feed"].get("resourceId"))
+                return (screen, feed) if feed is not None else None
+            return wait_value(find, args.timeout, "未找到包含帖子的首页纵向内容流；需要当前 XML")
+
+        locate_feed()
+
+        def like_post():
+            return like_instagram_post(
+                d, package, args.timeout, gestures["settle_seconds"],
+                configured_id=config["selectors"]["feed"].get("resourceId"),
             )
-
-        width, height = d.window_size()
-
-        def double_tap():
-            width, height = d.window_size()
-            d.double_click(
-                width // 2,
-                height // 2,
-                duration=gestures["double_tap_interval"],
-            )
-            time.sleep(gestures["settle_seconds"])
-
-            return {
-                "method": "screen_center_double_tap",
-                "like_verified": False,
-            }
 
         def swipe(key):
-            feed = d(
+            screen, feed = locate_feed()
+            before = screen.fingerprint(feed)
+
+            target = d(
                 packageName=package,
-                **config["selectors"]["feed"],
+                resourceId="android:id/list",
+                scrollable=True,
             )
-
-            if feed.count != 1:
-                raise RuntimeError(
-                    "内容流容器不存在或匹配不唯一"
-                )
-
-            info = feed.info
-            box = info.get("visibleBounds") or info["bounds"]
-
-            x = (box["left"] + box["right"]) // 2
-            margin = max(8, (box["bottom"] - box["top"]) // 50)
-            top = box["top"] + margin
-            bottom = box["bottom"] - margin
-
-            if bottom <= top:
-                raise RuntimeError("内容流中没有可用的手势操作区域")
+            if target.count != 1:
+                raise RuntimeError("未找到唯一的首页内容列表")
 
             if key == "browse_down":
-                start_y, end_y = bottom, top
+                reported = target.scroll.vert.forward(steps=50)
+            elif key == "browse_up":
+                reported = target.scroll.vert.backward(steps=50)
             else:
-                start_y, end_y = top, bottom
+                raise ValueError("未知滑动方向：" + key)
 
-            d.swipe(x, start_y, x, end_y, duration=0.5)
-            time.sleep(gestures["settle_seconds"])
+            time.sleep(max(gestures["settle_seconds"], 0.6))
+
+            after, new_feed = locate_feed()
+            changed = before != after.fingerprint(new_feed)
+
+            if not changed and not reported:
+                raise RuntimeError(
+                    "列表未报告滚动成功，且布局未变化；"
+                    "可能已到边界或滚动未生效"
+                )
 
             return {
-                "method": "gesture_within_feed_bounds",
+                "method": "native_feed_list_scroll",
                 "action": key,
-                "gesture_sent": True,
+                "android_reported_success": bool(reported),
+                "content_layout_changed": changed,
                 "scroll_verified": False,
             }
 
@@ -129,13 +131,12 @@ def main():
         )
 
         steps = [
-            ("double_tap_1", double_tap),
             ("browse_down_1", lambda: swipe("browse_down")),
-            ("double_tap_2", double_tap),
-            # ("browse_down_2", lambda: swipe("browse_down")),
-            # ("double_tap_3", double_tap),
+            ("browse_down_2", lambda: swipe("browse_down")),
+            # ("browse_down_3", lambda: swipe("browse_down")),
             ("browse_up_1", lambda: swipe("browse_up")),
-            # ("browse_up_2", lambda: swipe("browse_up")),
+            ("browse_up_2", lambda: swipe("browse_up")),
+            # ("browse_up_3", lambda: swipe("browse_up")),
         ]
 
         for index, (name, action) in enumerate(steps, 1):
@@ -191,6 +192,7 @@ def main():
     except Exception as exc:
         error = "%s: %s" % (type(exc).__name__, exc)
         result["error"] = error
+        save_failure(d, "ins", result)
 
         if row is not None and row["status"] == "RUNNING":
             row.update(

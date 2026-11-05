@@ -421,7 +421,10 @@ fun logRunHeader(
             appendLine("run.logsPath=${outputDirectory.path}")
             appendLine("[config]")
             appendLine("config.seed=${config.randomSeed}")
-            appendLine("config.appSet=${config.appSetNumber}")
+            // 保留 appSet 键供既有比较工具分组；新含义是数量，不再是轻/中/重编号。
+            appendLine("config.appSet=${config.appCount}")
+            appendLine("config.workload=workload${config.appCount}")
+            appendLine("config.appCount=${config.appCount}")
             appendLine("config.appOrder=${appNames.joinToString(",")}")
             appendLine("config.swapType=${config.swapType}")
             // 结构统一：与 type 无关的项也照样输出，用 `-` 表示"本轮不适用"。

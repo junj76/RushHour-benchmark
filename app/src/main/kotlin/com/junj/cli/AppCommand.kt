@@ -10,7 +10,7 @@ import com.junj.config.DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB
 import com.junj.config.DEFAULT_ZRAM_WRITEBACK_INTERVAL_SEC
 import com.junj.config.DEFAULT_ZSWAP_MAX_POOL_PERCENT
 import com.junj.config.ExperimentConfig
-import com.junj.domain.app.AppSetType
+import com.junj.domain.app.globalAppInfos
 import com.junj.output.logging.getTimeStamp
 import java.io.File
 
@@ -52,16 +52,16 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
             }
         }
 
-    val appSetNumber: Int by option(
+    val appCount: Int by option(
         "-a",
         "--apps",
-        help = "app set number: 0=light, 1=mid, 2=heavy"
+        help = "Number of workload entries: 1..${globalAppInfos.size}; selects the first N entries"
     )
         .int()
         .required()
         .validate {
-            require(it in AppSetType.LIGHT.code..AppSetType.HEAVY.code) {
-                "app-set must be between ${AppSetType.LIGHT.code} and ${AppSetType.HEAVY.code}"
+            require(it in 1..globalAppInfos.size) {
+                "apps must be between 1 and ${globalAppInfos.size}"
             }
         }
 
@@ -147,11 +147,7 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
     val zswapMaxPoolPercent = maxPoolPercent ?: DEFAULT_ZSWAP_MAX_POOL_PERCENT
 
     val suffix = buildString {
-        when (command.appSetNumber) {
-            AppSetType.LIGHT.code -> append("_light")
-            AppSetType.MIDDLE.code -> append("_middle")
-            AppSetType.HEAVY.code -> append("_heavy")
-        }
+        append("_workload${command.appCount}")
         when (command.type) {
             ArgType.NO_SWAP.code -> append("_noSwap")
             ArgType.ONLY_ZRAM.code -> append("_onlyZram")
@@ -166,7 +162,7 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
 
     return ExperimentConfig(
         swapType = command.type,
-        appSetNumber = command.appSetNumber,
+        appCount = command.appCount,
         randomSeed = command.randomSeed,
         timestamp = timestamp,
         outputDirectory = File("../logs/$timestamp"),

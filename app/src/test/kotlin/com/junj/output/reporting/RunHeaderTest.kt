@@ -17,9 +17,9 @@ class RunHeaderTest {
                     logger = logger,
                     config = ExperimentConfig(
                         swapType = 1,
-                        appSetNumber = 0,
+                        appCount = 2,
                         randomSeed = 0,
-                        timestamp = "20261016_120000_light_onlyZram",
+                        timestamp = "20261016_120000_workload2_onlyZram",
                         outputDirectory = directory,
                         flashSwapDeviceSizeMB = 4096,
                     ),
@@ -32,11 +32,13 @@ class RunHeaderTest {
 
             assertTrue(text.startsWith("# schema=2"), text)
             assertTrue(text.contains("[run]"), text)
-            assertTrue(text.contains("run.id=20261016_120000_light_onlyZram"), text)
+            assertTrue(text.contains("run.id=20261016_120000_workload2_onlyZram"), text)
             assertTrue(text.contains("run.logsPath=${directory.path}"), text)
             assertTrue(text.contains("[config]"), text)
             assertTrue(text.contains("config.seed=0"), text)
-            assertTrue(text.contains("config.appSet=0"), text)
+            assertTrue(text.contains("config.appSet=2"), text)
+            assertTrue(text.contains("config.appCount=2"), text)
+            assertTrue(text.contains("config.workload=workload2"), text)
             assertTrue(text.contains("config.appOrder=bilibili,wps"), text)
             assertTrue(text.contains("config.swapType=1"), text)
             assertTrue(text.contains("config.testRounds=10"), text)

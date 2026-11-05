@@ -6,12 +6,3 @@ data class ApplicationInfo(
     val componentName: String
 )
 
-enum class AppSetType {
-    LIGHT,
-    MIDDLE,
-    HEAVY;
-
-    val code: Int
-        get() = ordinal
-}
-

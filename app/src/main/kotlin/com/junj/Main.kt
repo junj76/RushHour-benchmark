@@ -11,7 +11,6 @@ import com.junj.device.swap.SwapController
 import com.junj.device.swap.ZramWritebackJob
 import com.junj.domain.ExperimentResults
 import com.junj.domain.TestClock
-import com.junj.domain.app.appNameSet
 import com.junj.domain.app.globalAppInfos
 import com.junj.experiment.ExperimentRunner
 import com.junj.metrics.MetricsCollector
@@ -34,7 +33,7 @@ fun main(args: Array<String>) = runBlocking {
     val logger = Logger(output.directory)
     val results = ExperimentResults()
     var apps = globalAppInfos
-        .filter { it.name in appNameSet[config.appSetNumber] }
+        .take(config.appCount)
         .shuffled(Random(config.randomSeed))
     logRunHeader(logger, config, apps.map { it.name }, output.directory)
 

@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
 
 
 def main():
@@ -162,19 +163,8 @@ def main():
 
         device.implicitly_wait(0)
 
-        current_package = device.app_current().get("package")
-        allowed_packages = config.get(
-            "packages",
-            [config["package"]],
-        )
-
-        if current_package not in allowed_packages:
-            raise RuntimeError(
-                "当前前台包名不符合预期：%s；预期包名应为以下之一：%s"
-                % (current_package, allowed_packages)
-            )
-
-        package = current_package
+        allowed_packages = config.get("packages", [config["package"]])
+        package = require_app_ui(device, allowed_packages, timeout=args.timeout)
         result["package"] = package
 
         result["initialization_seconds"] = round(

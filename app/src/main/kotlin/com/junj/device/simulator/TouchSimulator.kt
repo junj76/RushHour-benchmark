@@ -7,7 +7,6 @@ import java.nio.file.Paths
 
 private const val ACTION_TIME_SECONDS = "10"
 private const val ACTION_INTERVAL_SECONDS = "0.1"
-private const val WINDOWS_ADB_EXECUTABLE = "adb.exe"
 
 class TouchSimulator(
     private val adb: AdbExecutor,
@@ -34,10 +33,10 @@ class TouchSimulator(
             return
         }
 
-        val python = actionsDirectory.parent.resolve(".venv/bin/python3")
+        val launcher = actionsDirectory.parent.resolve("wsl_run_app.sh")
         val runner = actionsDirectory.resolve("run_app.py")
-        check(Files.isExecutable(python)) {
-            "Python virtual environment is unavailable: $python"
+        check(Files.isRegularFile(launcher)) {
+            "Windows Python launcher is unavailable: $launcher"
         }
         check(Files.isRegularFile(runner)) {
             "App action runner is unavailable: $runner"
@@ -49,10 +48,6 @@ class TouchSimulator(
         val process = ProcessBuilder(command)
             .directory(actionsDirectory.toFile())
             .inheritIO()
-            .apply {
-                environment()["ADBUTILS_ADB_PATH"] = WINDOWS_ADB_EXECUTABLE
-                environment()["PYTHONUNBUFFERED"] = "1"
-            }
             .start()
 
         val exitCode = process.waitFor()
@@ -66,8 +61,8 @@ class TouchSimulator(
     }
 
     internal fun buildAppActionCommand(name: String): List<String> = listOf(
-        actionsDirectory.parent.resolve(".venv/bin/python3").toString(),
-        "run_app.py",
+        "bash",
+        actionsDirectory.parent.resolve("wsl_run_app.sh").toString(),
         "--time",
         ACTION_TIME_SECONDS,
         "--interval",
@@ -106,8 +101,8 @@ class TouchSimulator(
     companion object {
         private fun locateActionsDirectory(): Path {
             val candidates = listOf(
-                Paths.get("app_actions/CNapp"),
-                Paths.get("../app_actions/CNapp"),
+                Paths.get("app_actions/ENapp"),
+                Paths.get("../app_actions/ENapp"),
             )
             return candidates
                 .map { it.toAbsolutePath().normalize() }

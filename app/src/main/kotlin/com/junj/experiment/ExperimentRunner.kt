@@ -40,7 +40,13 @@ class ExperimentRunner(
             val launchStamp = clock.elapsedMs()
             val nextLaunchNs = launchStartNs + config.launchIntervalMs * 1_000_000L
             adb.rootShell("dumpsys gfxinfo ${app.packageName} reset")
-            val amStartResult = adb.shell("am start -W -n ${app.componentName}")
+            val component = app.componentName.ifBlank {
+                adb.shell("cmd package resolve-activity --brief -a android.intent.action.MAIN " +
+                    "-c android.intent.category.LAUNCHER ${app.packageName}").output
+                    .lineSequence().map { it.trim() }.firstOrNull { it.startsWith("${app.packageName}/") }
+                    ?: error("No launcher activity for ${app.name} (${app.packageName}); check installation")
+            }
+            val amStartResult = adb.shell(buildAppLaunchCommand(component))
             val launchedPid = waitForApplicationPid(adb, app.packageName)
             touchSimulator.simulate(app.name)
             sleepUntil(launchStartNs + config.collectDelayMs * 1_000_000L)
@@ -115,4 +121,10 @@ class ExperimentRunner(
             sleep(remainingNs / 1_000_000L, (remainingNs % 1_000_000L).toInt())
         }
     }
+}
+
+internal fun buildAppLaunchCommand(component: String): String {
+    fun quote(value: String) = "'" + value.replace("'", "'\\''") + "'"
+    // 分别保护手机 Shell 的组件参数和电脑 Bash 的整条命令，保留 $ 等字符。
+    return quote("am start -W -n ${quote(component)}")
 }

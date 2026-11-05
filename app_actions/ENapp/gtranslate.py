@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
+from flow_controls import save_failure
 
 
 def main():
@@ -30,6 +32,7 @@ def main():
         .read_text(encoding="utf-8-sig")
     )
     result = {"app": "gtranslate", "status": "FAIL", "steps": []}
+    d = None
 
     def step(name, action):
         started = time.monotonic()
@@ -94,7 +97,7 @@ def main():
             packageName=cfg["package"],
             textMatches=cfg["result_pattern"],
         )
-        deadline = time.monotonic() + args.timeout
+        deadline = time.monotonic() + max(args.timeout, 20)
         while not translated.exists:
             if time.monotonic() >= deadline:
                 raise RuntimeError("未检测到中文译文，需要提交后的页面 XML")
@@ -109,8 +112,7 @@ def main():
     try:
         d = u2.connect()
         d.implicitly_wait(0)
-        if d.app_current().get("package") != cfg["package"]:
-            raise RuntimeError("请先打开 Google 翻译")
+        require_app_ui(d, cfg['package'], timeout=args.timeout)
 
         result["initialization_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
@@ -128,6 +130,7 @@ def main():
 
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
+        save_failure(d, "gtranslate", result)
 
     result["elapsed_seconds"] = round(time.monotonic() - SCRIPT_STARTED, 3)
     print(json.dumps(result, ensure_ascii=False, indent=2))

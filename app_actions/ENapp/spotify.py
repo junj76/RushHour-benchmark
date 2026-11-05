@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
 
 
 def main():
@@ -86,11 +87,7 @@ def main():
         )
         device.implicitly_wait(0)
 
-        current = device.app_current().get("package")
-        if current != package:
-            raise RuntimeError(
-                "请将 Spotify 打开到前台；当前包名：%s" % current
-            )
+        require_app_ui(device, package, timeout=args.timeout)
 
         width, height = device.window_size()
 

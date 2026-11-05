@@ -33,14 +33,14 @@ class TouchSimulatorTest {
     }
 
     @Test
-    fun `app action command uses venv python and unified runner options`() {
-        val actionsDirectory = Paths.get("/tmp/app_actions/CNapp")
+    fun `app action command uses Windows Python launcher and unified runner options`() {
+        val actionsDirectory = Paths.get("/tmp/app_actions/ENapp")
         val simulator = TouchSimulator(RecordingAdb(), actionsDirectory)
 
         assertEquals(
             listOf(
-                "/tmp/app_actions/.venv/bin/python3",
-                "run_app.py",
+                "bash",
+                "/tmp/app_actions/wsl_run_app.sh",
                 "--time",
                 "10",
                 "--interval",

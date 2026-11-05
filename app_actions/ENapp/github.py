@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
 
 
 def main():
@@ -280,12 +281,7 @@ def main():
         device.implicitly_wait(0)
         screen_width, screen_height = device.window_size()
 
-        current_package = device.app_current().get("package")
-        if current_package != package:
-            raise RuntimeError(
-                "请先将 GitHub 打开到前台；当前包名：%s"
-                % current_package
-            )
+        require_app_ui(device, package, timeout=args.timeout)
 
         result["initialization_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED,

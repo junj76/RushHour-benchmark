@@ -2,7 +2,7 @@ package com.junj.config
 
 import java.io.File
 
-const val DEFAULT_TEST_ROUND_COUNT = 10
+const val DEFAULT_TEST_ROUND_COUNT = 5
 const val DEFAULT_SAMPLE_INTERVAL_MS = 2_000L
 const val DEFAULT_LAUNCH_INTERVAL_MS = 20_000L
 const val DEFAULT_COLLECT_DELAY_MS = 18_000L
@@ -17,7 +17,7 @@ const val DEFAULT_ZSWAP_MAX_POOL_PERCENT = 20
 
 data class ExperimentConfig(
     val swapType: Int,
-    val appSetNumber: Int,
+    val appCount: Int,
     val randomSeed: Int = 0,
     val timestamp: String,
     val outputDirectory: File,
