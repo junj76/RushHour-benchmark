@@ -8,6 +8,7 @@ import math
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -156,8 +157,7 @@ def main():
             time.monotonic() - connect_started, 3
         )
 
-        if d.app_current().get("package") != package:
-            raise RuntimeError("请将 Gmail 打开到前台")
+        require_app_ui(d, package, timeout=args.timeout)
 
         wait_until(
             lambda: (

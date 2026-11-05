@@ -1,7 +1,6 @@
 {
-    "app": "wiki",
-    "package": "org.wikipedia",
-    "keyword": "华中科技大学",
-    "search_pattern": "(?i)^(搜索|搜尋|Search)$",
-    "home_pattern": "(?i)^(首页|首頁|主页|主頁|探索|Home|Explore)$"
+    "package": "com.wikihow.wikihowapp",
+    "keyword": "apple",
+    "read_pause": 1.0,
+    "swipe_steps": 55
 }

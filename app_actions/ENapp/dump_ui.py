@@ -2,6 +2,7 @@ import argparse
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import visible_ui_packages
 
 
 parser = argparse.ArgumentParser()
@@ -16,10 +17,11 @@ folder = Path(__file__).resolve().parent / "ui_dumps"
 folder.mkdir(exist_ok=True)
 
 path = folder / (args.name + ".xml")
+ui_xml = d.dump_hierarchy(compressed=False)
 path.write_text(
-    d.dump_hierarchy(compressed=False),
+    ui_xml,
     encoding="utf-8",
 )
 
-print("当前包名：", d.app_current().get("package"))
+print("界面 XML 中可见的包名：", visible_ui_packages(ui_xml))
 print("界面 XML 保存位置：", path)

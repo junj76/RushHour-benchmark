@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
 
 
 def main():
@@ -106,11 +107,7 @@ def main():
             time.monotonic() - started, 3
         )
 
-        current = device.app_current().get("package")
-        if current != config["package"]:
-            raise RuntimeError(
-                f"请先打开 Foodpanda；当前包名：{current}"
-            )
+        require_app_ui(device, config['package'], timeout=args.timeout)
 
         wait_control(config["manual_label"])
         result["initialization_seconds"] = round(

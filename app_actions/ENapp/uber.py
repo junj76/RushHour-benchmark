@@ -9,6 +9,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
 
 
 def main():
@@ -94,8 +95,7 @@ def main():
         )
         d.implicitly_wait(0)
 
-        if d.app_current().get("package") != package:
-            raise RuntimeError("请先将 Uber 首页打开到前台")
+        require_app_ui(d, package, timeout=args.timeout)
 
         def home_ready():
             tree = ET.fromstring(
@@ -213,8 +213,7 @@ def main():
             return bool(field.exists)
 
         def back():
-            if d.app_current().get("package") != package:
-                raise RuntimeError("Uber 已不在前台，停止返回")
+            require_app_ui(d, package, timeout=args.timeout)
 
             if home_ready():
                 return {

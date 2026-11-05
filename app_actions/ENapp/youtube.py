@@ -9,6 +9,8 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 import uiautomator2 as u2
+from app_ui import require_app_ui
+from flow_controls import ensure_youtube_home, save_failure
 
 # BASE_DIR = ENapp 路径
 BASE_DIR = Path(__file__).resolve().parent
@@ -277,10 +279,10 @@ def main():
             time.monotonic() - connect_started, 3
         )
 
-        if d.app_current().get("package") != package:
-            raise RuntimeError("请将 YouTube 打开到前台")
+        require_app_ui(d, package, timeout=args.timeout)
 
-        wait_until(home_active, "运行前请先打开 YouTube 首页")
+        result["home_preparation"] = ensure_youtube_home(d, package, args.timeout)
+        wait_until(home_active, "未能恢复 YouTube 首页")
 
         if present(selectors["miniplayer"]):
             raise RuntimeError(
@@ -364,6 +366,7 @@ def main():
     except Exception as exc:
         error = "%s: %s" % (type(exc).__name__, exc)
         result["error"] = error
+        save_failure(d, "youtube", result)
 
         if row is not None and row["status"] == "RUNNING":
             row.update(status="FAIL", error=error)

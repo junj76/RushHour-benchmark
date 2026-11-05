@@ -32,6 +32,7 @@ APP_SCRIPTS = {
     "gtranslate":"gtranslate.py",
     "tripadvisor":"tripadvisor.py",
     "aliexpress":"aliexpress.py",
+    "youtube_shorts": "youtube_shorts.py"
 }
 
 

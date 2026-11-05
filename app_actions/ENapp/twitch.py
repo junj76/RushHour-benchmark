@@ -8,6 +8,8 @@ import math
 from pathlib import Path
 
 import uiautomator2 as u2
+from app_ui import require_app_ui
+from flow_controls import capture, twitch_clean_home, twitch_close, twitch_overlay, save_failure
 
 
 def main():
@@ -81,101 +83,66 @@ def main():
         return {"home_verified": True}
 
     def close_miniplayer():
-        import xml.etree.ElementTree as ET
-        from uiautomator2.exceptions import UiObjectNotFoundError
-
         wait(home, "首页内容流尚未就绪")
+        deadline = time.monotonic() + args.timeout
+        clicked = False
+        pattern = r"(?i)(?:close|dismiss|关闭|關閉).*"
 
-        close_button = d.xpath(
-            "//*[@resource-id='theatre-screen']"
-            "//*[@clickable='true']["
-            "contains(@content-desc, '关闭') or "
-            "contains(translate(@content-desc,"
-            "'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
-            "'abcdefghijklmnopqrstuvwxyz'), 'close') or "
-            "contains(translate(@content-desc,"
-            "'ABCDEFGHIJKLMNOPQRSTUVWXYZ',"
-            "'abcdefghijklmnopqrstuvwxyz'), 'dismiss')]"
-        )
-
-        def clean_home():
-            tree = ET.fromstring(
-                d.dump_hierarchy(compressed=False)
-            )
-            nodes = [
-                n for n in tree.iter("node")
-                if n.get("package") == package
-            ]
-            ids = {n.get("resource-id", "") for n in nodes}
-            player_ids = {
-                "theatre-screen",
-                "mini-player-controls-overlay",
-                "video-player",
-                package + ":id/video_presenter_container",
-                package + ":id/minimized_overlay",
-            }
-            home_selected = any(
-                n.get("resource-id")
-                == package + ":id/viewer_bottom_nav_home"
-                and n.get("selected") == "true"
-                for n in nodes
-            )
-            feed_present = bool(ids & {
-                "feed-list",
-                package + ":id/feed_item_recycler",
-            })
-            return (
-                home_selected and feed_present
-                and not (ids & player_ids)
+        while time.monotonic() < deadline:
+            overlay = d(
+                packageName=package,
+                descriptionMatches=r"(?i)(Show|Hide) mini player controls",
             )
 
-        for attempt in range(1, 4):
-            buttons = close_button.all()
-            if not buttons:
-                mini = control("miniplayer")
-                if not mini.exists:
-                    raise RuntimeError(
-                        "未找到小窗入口，无法验证小窗是否关闭"
-                    )
-                mini.click(timeout=0.5)
-                buttons = close_button.all()
-
-            if len(buttons) > 1:
-                raise RuntimeError("匹配到多个关闭按钮")
-            if not buttons:
+            if overlay.count != 1:
+                if twitch_clean_home(capture(d, package)):
+                    time.sleep(0.3)
+                    if twitch_clean_home(capture(d, package)):
+                        return {
+                            "method": "already_absent",
+                            "miniplayer_closed": True,
+                            "home_verified": True,
+                        }
+                time.sleep(0.1)
                 continue
 
-            attrs = buttons[0].attrib
-            rule = {
-                "packageName": package,
-                # "className": attrs["class"],
-                "clickable": True,
-            }
-            for xml_key, selector_key in [
-                ("resource-id", "resourceId"),
-                ("content-desc", "description"),
-                ("text", "text"),
-            ]:
-                if attrs.get(xml_key):
-                    rule[selector_key] = attrs[xml_key]
+            box = overlay.info["bounds"]
+            overlay.click(timeout=0.5)
+            reveal_deadline = min(deadline, time.monotonic() + 1.5)
 
-            try:
-                d(**rule).click(timeout=0.5)
-            except UiObjectNotFoundError:
-                continue
+            while time.monotonic() < reveal_deadline:
+                for button in (
+                    d(packageName=package, descriptionMatches=pattern),
+                    d(packageName=package, textMatches=pattern),
+                ):
+                    if button.count != 1:
+                        continue
+                    b = button.info["bounds"]
+                    if (
+                        box["left"] <= b["left"] < b["right"] <= box["right"]
+                        and box["top"] <= b["top"] < b["bottom"] <= box["bottom"]
+                    ):
+                        button.click(timeout=0.5)
+                        clicked = True
+                        break
+                if clicked:
+                    break
+                time.sleep(0.1)
+            if clicked:
+                break
 
-            if clean_home():
-                time.sleep(0.5)
-                if clean_home():
-                    return {
-                        "method": "native_close_control",
-                        "attempts": attempt,
-                        "miniplayer_closed": True,
-                    }
+        if not clicked:
+            raise RuntimeError("已尝试显示小窗控制层，仍未找到关闭按钮")
 
-        raise RuntimeError(
-            "已尝试关闭 3 次，仍未确认播放器已消失"
+        wait(
+            lambda: twitch_clean_home(capture(d, package)),
+            "点击关闭后，小窗仍未消失",
         )
+        return {
+            "method": "native_miniplayer_close_control",
+            "miniplayer_closed": True,
+            "home_verified": True,
+        }
 
     def run_step(name, action, apply_interval=True):
         if apply_interval and result["steps"] and args.interval:
@@ -200,10 +167,16 @@ def main():
         started = time.monotonic()
         d = u2.connect()
         result["connect_seconds"] = round(time.monotonic() - started, 3)
-        d.implicitly_wait(args.timeout)
-        if d.app_current().get("package") != package:
-            raise RuntimeError("请先将 Twitch 打开到前台")
+        d.implicitly_wait(0)
+        require_app_ui(d, package, timeout=args.timeout)
+        if control("chat").exists or control("presenter").exists:
+            result["initial_player_recovery"] = return_to_feed()
+        home_tab = control("home")
+        if home_tab.exists and not control("home", selected=True).exists:
+            home_tab.click()
         wait(home, "请从 Twitch 首页内容流开始运行")
+        if twitch_overlay(capture(d, package)):
+            result["initial_miniplayer_recovery"] = close_miniplayer()
         if control("presenter").exists:
             raise RuntimeError("开始前请先关闭现有播放器")
         result["initialization_seconds"] = round(time.monotonic() - SCRIPT_STARTED, 3)
@@ -245,6 +218,7 @@ def main():
         result["status"] = "PASS"
     except Exception as exc:
         result["error"] = "%s: %s" % (type(exc).__name__, exc)
+        save_failure(d, "twitch", result)
         print("[twitch] 失败：" + result["error"], flush=True)
     finally:
         result["elapsed_seconds"] = round(time.monotonic() - SCRIPT_STARTED, 3)

@@ -4,6 +4,7 @@ import argparse
 import json
 from pathlib import Path
 import uiautomator2 as u2
+from app_ui import require_app_ui
 
 def main():
     step_labels = {
@@ -87,9 +88,7 @@ def main():
     try:
         d = u2.connect()
         d.implicitly_wait(0)
-        current = d.app_current().get("package")
-        if current != cfg["package"]:
-            raise RuntimeError(f"请先打开 Weather & Radar；当前包名：{current}")
+        require_app_ui(d, cfg['package'], timeout=args.timeout)
         width, height = d.window_size()
         result["initialization_seconds"] = round(time.monotonic() - SCRIPT_STARTED, 3)
         for name in ("hourly_left", "hourly_right", "browse_down"):

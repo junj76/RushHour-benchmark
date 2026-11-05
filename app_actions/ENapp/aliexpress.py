@@ -4,6 +4,8 @@ import argparse
 import json
 from pathlib import Path
 import uiautomator2 as u2
+from app_ui import require_app_ui
+from flow_controls import save_failure
 
 
 def main():
@@ -24,6 +26,7 @@ def main():
                      .read_text(encoding="utf-8-sig"))
     result = {"app": "aliexpress", "status": "FAIL", "steps": [],
               "verification": "action_execution_only"}
+    d = None
 
     def wait(check, message):
         deadline = time.monotonic() + args.timeout
@@ -56,7 +59,30 @@ def main():
             and bool(d(resourceId=cfg["package"] + ":id/home_tab_layout").exists)
         )
 
+    def dismiss_promotion():
+        close = d.xpath(
+            f"//*[@resource-id='{cfg['package']}:id/global_houyi_core_poplayer_inner_view']"
+            "//*[@content-desc='close' and @clickable='true']"
+        )
+        if close.exists:
+            close.click(timeout=0.5)
+            result["promotion_dismissed"] = True
+            return True
+        return False
+
+    def prepare_home():
+        title = d(resourceId="com.google.android.gms:id/title")
+        cancel = d(resourceId="com.google.android.gms:id/cancel")
+        if title.exists and "aliexpress" in title.get_text().lower() and cancel.exists:
+            cancel.click()
+            result["google_login_cancelled"] = True
+            return False
+        if dismiss_promotion():
+            return False
+        return home()
+
     def open_product():
+        wait(lambda: not dismiss_promotion(), "活动弹窗未能关闭")
         cards = d.xpath(
             f"//*[@resource-id='{cfg['package']}:id/root_recycler_view']"
             "//*[@clickable='true' and contains(@content-desc,' . US $')"
@@ -97,9 +123,7 @@ def main():
     try:
         d = u2.connect()
         d.implicitly_wait(0)
-        if d.app_current().get("package") != cfg["package"]:
-            raise RuntimeError("请先打开 AliExpress 首页")
-        wait(home, "请从 AliExpress 首页开始")
+        wait(prepare_home, "AliExpress 首页未出现，或登录提示未能关闭")
         step("open_product", open_product)
         step("browse_down_1", browse_down)
         step("browse_down_2", browse_down)
@@ -110,6 +134,7 @@ def main():
         result["status"] = "COMPLETED"
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
+        save_failure(d, "aliexpress", result)
     result["elapsed_seconds"] = round(time.monotonic() - SCRIPT_STARTED, 3)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["status"] == "COMPLETED" else 1
