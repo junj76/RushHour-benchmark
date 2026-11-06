@@ -4,8 +4,7 @@ SCRIPT_STARTED = time.monotonic()
 import argparse
 import json
 from pathlib import Path
-import uiautomator2 as u2
-from flow_controls import save_failure
+from device_connection import connect_device
 
 
 def main():
@@ -22,10 +21,9 @@ def main():
     package = cfg["package"]
     deadline = SCRIPT_STARTED + args.time
     result = {"app": "wiki", "status": "FAIL", "steps": []}
-    d = None
 
-    def wait(check, message, timeout=None):
-        stop = time.monotonic() + (args.timeout if timeout is None else timeout)
+    def wait(check, message):
+        stop = time.monotonic() + args.timeout
         while True:
             value = check()
             if value:
@@ -56,7 +54,7 @@ def main():
             )
 
     try:
-        d = u2.connect()
+        d = connect_device()
         d.implicitly_wait(0)
 
         field = d(
@@ -68,6 +66,13 @@ def main():
             " and @resource-id='searchresults_list']"
             "/*[@clickable='true' and @enabled='true']"
         )
+
+        def web_page(title):
+            return d(
+                packageName=package,
+                className="android.webkit.WebView",
+                text=title,
+            )
 
         def open_search():
             button = d(
@@ -108,9 +113,8 @@ def main():
             )
             if pages.count != 1 or articles.exists:
                 return False
-            # 当前版本 WebView 自身 text 为空，文章标题位于 section_0 子控件。
-            heading = d(packageName=package, resourceId="section_0")
-            return heading.exists and bool(heading.get_text().strip())
+            title = pages.get_text().strip()
+            return bool(title) and title not in ("Main Page", "LSearch")
 
         def open_article():
             matches = wait(
@@ -167,7 +171,14 @@ def main():
         def return_home():
             time.sleep(0.4)
             d.press("back")
-            return {"method": "android_back", "home_verified": False}
+            wait(
+                lambda: (
+                    bool(web_page("Main Page").exists)
+                    and not bool(articles.exists)
+                ),
+                "第二次返回后，未检测到 Main Page 首页",
+            )
+            return {"home_verified": True}
 
         step("open_search", open_search)
         step("input_keyword", input_keyword)
@@ -185,16 +196,6 @@ def main():
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
         print(f"[wiki] FAIL: {result['error']}", flush=True)
-        save_failure(d, "wiki", result)
-        if d is not None:
-            try:
-                folder = Path(__file__).resolve().parent / "ui_dumps"
-                folder.mkdir(exist_ok=True)
-                image = folder / f"wiki_failure_{time.time_ns()}.png"
-                d.screenshot(str(image))
-                result["failure_screenshot"] = str(image)
-            except Exception as capture_error:
-                result["failure_screenshot_error"] = str(capture_error)
 
     result["elapsed_seconds"] = round(
         time.monotonic() - SCRIPT_STARTED, 3

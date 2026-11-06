@@ -10,7 +10,7 @@ exec > >(tee "$terminal_log") 2>&1
 printf '终端日志：%s\n' "$terminal_log"
 
 # 按学长原版的 20 组参数，分别测试四种数量；每组默认 10 轮。
-workloads=(16 14 12 10)
+workloads=(12 14 16)
 sizes=(1024 4096)
 intervals=(10 60)
 pools=(5 10)
@@ -53,6 +53,12 @@ for count in "${workloads[@]}"; do
     for pool in "${pools[@]}"; do
         for size in "${sizes[@]}"; do
             run_config -t 4 -a "$count" -f "$size" -m "$pool"
+        done
+    done
+
+    for pool in "${pools[@]}"; do
+        for size in "${sizes[@]}"; do
+            run_config -t 5 -a "$count" -f "$size" -m "$pool"
         done
     done
 done

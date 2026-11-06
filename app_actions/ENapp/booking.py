@@ -3,15 +3,12 @@ import time
 SCRIPT_STARTED = time.monotonic()
 
 import argparse
-from http.client import RemoteDisconnected
 import json
 import math
-import re
 from pathlib import Path
 
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import require_app_ui
-from flow_controls import save_failure
 
 
 def main():
@@ -89,8 +86,16 @@ def main():
                 raise RuntimeError(message)
             time.sleep(0.15)
 
-    device = None
     try:
+        started = time.monotonic()
+        device = connect_device()
+        result["connect_seconds"] = round(
+            time.monotonic() - started, 3
+        )
+        device.implicitly_wait(0)
+
+        require_app_ui(device, package, timeout=args.timeout)
+
         def by_id(key):
             return device.xpath(
                 f"//*[@package='{package}'"
@@ -103,52 +108,13 @@ def main():
                 raise RuntimeError("匹配到多个控件：" + message)
             matches[0].click()
 
-        def results_visible():
-            return bool(by_id("results_id").exists) or (
-                device(packageName=package, description="Navigate up").exists
-                and (device(packageName=package, textMatches=
-                            re.escape(config["keyword"]) + r"\s*·.*").exists
-                     or device(packageName=package, descriptionMatches=
-                               re.escape(config["keyword"]) + r"\s*·.*").exists)
-            )
-
         def home_ready():
             return (
                 bool(by_id("destination_id").exists)
                 and bool(by_id("search_id").exists)
                 and not bool(by_id("date_confirm_id").exists)
-                and not results_visible()
+                and not bool(by_id("results_id").exists)
             )
-
-        def back_from_results():
-            up = device(packageName=package, description="Navigate up")
-            if up.exists:
-                up.click()
-            else:
-                device.press("back")
-
-        def prepare_home():
-            if home_ready():
-                return True
-            if (device(packageName=package, text="登录即可省钱").exists
-                    and not result.get("initial_login_back")):
-                device.press("back")
-                result["initial_login_back"] = True
-                return False
-            if results_visible() and not result.get("initial_results_back"):
-                back_from_results()
-                result["initial_results_back"] = True
-            return False
-
-        def city_destination_ready():
-            if by_id("date_confirm_id").exists or home_ready():
-                return True
-            # 已有日期时选择城市可能直接开始搜索，先返回表单再继续原流程。
-            if results_visible():
-                back_from_results()
-                wait(home_ready, "从城市搜索结果返回后，首页未出现")
-                return True
-            return False
 
         def open_destination():
             click_unique(
@@ -187,13 +153,6 @@ def main():
                     "method": "enter_key",
                     "date_picker_verified": True,
                 }
-            if home_ready():
-                return {"method": "enter_key", "date_picker_verified": False,
-                        "home_verified": True}
-            if results_visible():
-                city_destination_ready()
-                return {"method": "enter_search_then_back", "home_verified": True,
-                        "date_picker_verified": False}
             city = device(
                 packageName=package,
                 className="android.widget.TextView",
@@ -208,18 +167,15 @@ def main():
             city.click(timeout=0.5)
 
             wait(
-                city_destination_ready,
-                "选择城市后，日期选择器和首页均未出现",
+                lambda: bool(dates.exists),
+                "选择城市后，日期选择器未出现",
             )
             return {
                 "method": "city_text_control",
-                "date_picker_verified": bool(dates.exists),
-                "home_verified": home_ready(),
+                "date_picker_verified": True,
             }
 
         def confirm_dates():
-            if home_ready():
-                return {"method": "existing_dates_unchanged", "home_verified": True}
             button = device(
                 packageName=package,
                 resourceId=config["date_confirm_id"],
@@ -245,20 +201,15 @@ def main():
                 "[@clickable='true'"
                 " and string-length(@content-desc)>0]"
             )
-            semantic_cards = device.xpath(
-                f"//*[@package='{package}' and @clickable='true'"
-                f" and contains(@content-desc, {json.dumps(config['keyword'], ensure_ascii=False)})"
-                " and (contains(@content-desc,'CNY') or contains(@content-desc,'¥'))]"
-            )
 
             wait(
-                lambda: bool(cards.exists) or bool(semantic_cards.exists),
+                lambda: bool(cards.exists),
                 "住宿搜索结果卡片未出现",
             )
             return {"accommodation_cards_verified": True}
 
         def return_home():
-            back_from_results()
+            device.press("back")
             time.sleep(config["return_settle_seconds"])
             wait(home_ready, "按一次返回键后，未回到首页")
             result["home_elapsed_seconds"] = round(
@@ -270,21 +221,7 @@ def main():
                 "home_verified": True,
             }
 
-        for attempt in range(2):
-            try:
-                started = time.monotonic()
-                device = u2.connect()
-                result["connect_seconds"] = round(time.monotonic() - started, 3)
-                device.implicitly_wait(0)
-                require_app_ui(device, package, timeout=args.timeout)
-                wait(prepare_home, "请从 Booking 首页开始运行")
-                break
-            except RemoteDisconnected:
-                if attempt == 1:
-                    raise
-                print("[booking] 初始化连接断开，等待 1 秒后重新连接一次", flush=True)
-                result["initialization_retries"] = 1
-                time.sleep(1.0)
+        wait(home_ready, "请从 Booking 首页开始运行")
         result["initialization_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
         )
@@ -321,7 +258,6 @@ def main():
 
     except Exception as exc:
         result["error"] = "%s: %s" % (type(exc).__name__, exc)
-        save_failure(device, "booking", result)
         print("[booking] 失败：" + result["error"], flush=True)
     finally:
         result["elapsed_seconds"] = round(

@@ -1,5 +1,6 @@
 package com.junj.output.reporting
 
+import com.junj.cli.parseArgs
 import com.junj.config.ExperimentConfig
 import com.junj.output.logging.Logger
 import java.io.File
@@ -8,6 +9,30 @@ import kotlin.test.Test
 import kotlin.test.assertTrue
 
 class RunHeaderTest {
+    @Test
+    fun `both zswap variants record flash size and max pool percent in the header`() {
+        for ((type, label) in listOf("4" to "zswap", "5" to "zswap(zbud)")) {
+            for (options in listOf(emptyArray<String>(), arrayOf("-f", "2048", "-m", "5"))) {
+                val directory = Files.createTempDirectory("zswap-header-test").toFile()
+                try {
+                    val config = parseArgs(arrayOf("-t", type, "-a", "2") + options)
+                    Logger(directory).use { logger ->
+                        logRunHeader(logger, config, listOf("bilibili", "wps"), directory)
+                    }
+                    val text = File(directory, "summary.txt").readText()
+                    assertTrue(text.contains("run.id=${config.timestamp}"), text)
+                    assertTrue(config.timestamp.endsWith("_workload2_${label}${config.flashSwapDeviceSizeMB}_m${config.zswapMaxPoolPercent}"))
+                    assertTrue(text.contains("config.swapType=$type"), text)
+                    assertTrue(text.contains("config.flashSwapMiB=${config.flashSwapDeviceSizeMB}"), text)
+                    assertTrue(text.contains("config.zswapMaxPoolPercent=${config.zswapMaxPoolPercent}"), text)
+                    assertTrue(text.contains("config.writebackIntervalSec=-"), text)
+                } finally {
+                    directory.deleteRecursively()
+                }
+            }
+        }
+    }
+
     @Test
     fun `writes schema, run and config sections before the test starts`() {
         val directory = Files.createTempDirectory("header-test").toFile()

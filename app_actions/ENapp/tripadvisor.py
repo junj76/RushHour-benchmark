@@ -3,8 +3,8 @@ SCRIPT_STARTED = time.monotonic()
 import argparse
 import json
 from pathlib import Path
-import uiautomator2 as u2
-from flow_controls import save_failure
+from device_connection import connect_device
+from app_ui import require_app_ui
 
 def main():
     step_labels = {
@@ -23,9 +23,6 @@ def main():
     cfg = json.loads((Path(__file__).parent / "profiles/tripadvisor.json")
                      .read_text(encoding="utf-8-sig"))
     result = {"app": "tripadvisor", "status": "FAIL", "steps": []}
-    d = None
-    section_ids = sorted({cfg["section_id"], "DestinationsSection", "RecommendedDestinationsSection"})
-    section_xpath = "//*[" + " or ".join(f"@resource-id='{rid}'" for rid in section_ids) + "]"
 
     def wait(check, message):
         deadline = time.monotonic() + args.timeout
@@ -53,7 +50,8 @@ def main():
                   f"，耗时 {item['elapsed_seconds']:.3f} 秒")
 
     def open_card():
-        card = d.xpath(f"({section_xpath}//*[@clickable='true'])[1]")
+        card = d.xpath(f"(//*[@resource-id='{cfg['section_id']}']"
+                       "//*[@clickable='true'])[1]")
         wait(lambda: bool(card.exists), "首页推荐卡片未出现")
         card.get().click()
         wait(lambda: not home(), "点击后仍停留在首页推荐区域")
@@ -121,37 +119,13 @@ def main():
         return {"method": "android_back", "home_verified": True}
 
     try:
-        d = u2.connect()
+        d = connect_device()
         d.implicitly_wait(0)
         home = lambda: (
-            bool(d.xpath(section_xpath).exists)
+            bool(d(resourceId=cfg["section_id"]).exists)
             and bool(d(resourceId=cfg["package"] + ":id/avatarSearchFieldRoot").exists)
         )
-        def prepare_home():
-            title = d(resourceId="com.google.android.gms:id/title")
-            cancel = d(resourceId="com.google.android.gms:id/cancel")
-            if title.exists and "tripadvisor" in title.get_text().lower() and cancel.exists:
-                cancel.click()
-                result["google_login_cancelled"] = True
-                print("[tripadvisor] 已取消 Google 登录提示", flush=True)
-                return False
-            login_title = d(resourceId=cfg["package"] + ":id/txtThirdPartyTitle")
-            google_button = d(resourceId=cfg["package"] + ":id/btnGoogle")
-            login_back = d(resourceId=cfg["package"] + ":id/barBtnGlobalNavPrimary")
-            if (login_title.exists and google_button.exists and login_back.exists
-                    and not result.get("login_page_dismissed")):
-                login_back.click()
-                result["login_page_dismissed"] = True
-                print("[tripadvisor] 已返回退出应用登录页", flush=True)
-                return False
-            if (result.get("google_login_cancelled") and not home()
-                    and not login_title.exists and not result.get("relaunched_after_login")):
-                d.app_start(cfg["package"])
-                result["relaunched_after_login"] = True
-                return False
-            return home()
-
-        wait(prepare_home, "Tripadvisor 首页未出现，或登录提示未能关闭")
+        require_app_ui(d, cfg['package'], timeout=args.timeout)
         step("open_recommended_card", open_card)
         step("browse_down_1", scroll_down)
         step("browse_down_2", scroll_down)
@@ -162,7 +136,6 @@ def main():
         result["status"] = "PASS"
     except Exception as exc:
         result["error"] = f"{type(exc).__name__}: {exc}"
-        save_failure(d, "tripadvisor", result)
     result["elapsed_seconds"] = round(time.monotonic() - SCRIPT_STARTED, 3)
     print(json.dumps(result, ensure_ascii=False, indent=2))
     return 0 if result["status"] == "PASS" else 1

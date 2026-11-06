@@ -255,9 +255,22 @@ def like_instagram_post(device, package, timeout, settle_seconds, configured_id=
 
 def pinterest_cards(screen):
     # 先确认是首页，避免把详情页的相关推荐当成首页图片。
-    home_present = any(
-        screen.rid(n) == "home_feed_greeting_header_logotype"
-        for n in screen.nodes
+    home_present = (
+        any(
+            screen.rid(n) == "home_feed_greeting_header_logotype"
+            for n in screen.nodes
+        )
+        or (
+            any(
+                screen.rid(n) == "bottom_nav_home_icon"
+                and screen.selected(n)
+                for n in screen.nodes
+            )
+            and any(
+                screen.rid(n) == "p_recycler_view_home"
+                for n in screen.nodes
+            )
+        )
     )
     if not home_present:
         return []
@@ -335,37 +348,6 @@ def shorts_tab(screen):
     if len(tabs) > 1:
         raise RuntimeError("Multiple Shorts navigation tabs")
     return tabs[0] if tabs else None
-
-
-def ensure_youtube_home(device, package, timeout):
-    screen = capture(device, package)
-    if screen.home_selected() and shorts_viewer(screen) is None:
-        return {"method": "already_home", "home_verified": True}
-
-    def home_buttons(s):
-        return s.unique_actions(n for n in s.nodes if re.fullmatch(
-            r"(?i)(Home|首页|首頁)(?:[,， ].*)?", s.label(n)) and any(
-                s.rid(p) in {"pivot_bar", "bottom_bar_container", "bottom_navigation",
-                             "bottom_navigation_view"} for p in ancestors(s, n)))
-
-    buttons = home_buttons(screen)
-    if not buttons and shorts_viewer(screen) is not None:
-        device.press("back")
-        time.sleep(0.5)
-        screen = capture(device, package)
-        if screen.home_selected() and shorts_viewer(screen) is None:
-            return {"method": "back_from_shorts", "home_verified": True}
-        buttons = home_buttons(screen)
-    if len(buttons) != 1:
-        raise RuntimeError("未找到唯一的 YouTube 底部首页按钮")
-    screen.element(device, buttons[0]).click()
-
-    def ready():
-        s = capture(device, package)
-        return s.home_selected() and shorts_viewer(s) is None
-
-    wait_value(ready, timeout, "点击首页后未退出 Shorts 或未选中首页")
-    return {"method": "home_tab_control", "home_verified": True}
 
 
 def ancestors(screen, node):

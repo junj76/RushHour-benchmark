@@ -1,47 +1,10 @@
 {
-    "app": "youtube",
-    "package": "com.google.android.youtube",
-    "keyword": "apple",
-    "selectors": {
-        "search_button": [
-            {
-                "resourceId": "com.google.android.youtube:id/menu_item_view",
-                "description": "搜索"
-            },
-            {
-                "description": "Search"
-            }
-        ],
-        "search_input": [
-            {
-                "resourceId": "com.google.android.youtube:id/search_edit_text"
-            },
-            {
-                "className": "android.widget.EditText"
-            }
-        ],
-        "first_video": [
-            {
-                "className": "android.view.ViewGroup",
-                "descriptionMatches": "(?is).* - (播放视频|Play video)$",
-                "clickable": true,
-                "enabled": true
-            }
-        ],
-        "player": [
-            {
-                "resourceId": "com.google.android.youtube:id/watch_player"
-            }
-        ],
-        "miniplayer": [
-            {
-                "resourceId": "com.google.android.youtube:id/floaty_bar_controls_view"
-            }
-        ],
-        "close_miniplayer": [
-            {
-                "resourceId": "com.google.android.youtube:id/modern_miniplayer_close"
-            }
-        ]
-    }
+  "app": "youtube",
+  "package": "com.google.android.youtube",
+  "home_feed_id": "com.google.android.youtube:id/results",
+  "home_nav_id": "com.google.android.youtube:id/pivot_bar",
+  "first_home_item_xpath": "(//*[@resource-id='com.google.android.youtube:id/results']/*[@package='com.google.android.youtube' and @enabled='true' and @visible-to-user!='false'])[1]",
+  "player_ids": ["com.google.android.youtube:id/watch_player"],
+  "miniplayer_ids": ["com.google.android.youtube:id/floaty_bar_controls_view"],
+  "close_miniplayer_ids": ["com.google.android.youtube:id/modern_miniplayer_close"]
 }

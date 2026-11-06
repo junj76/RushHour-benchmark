@@ -430,10 +430,10 @@ fun logRunHeader(
             // 结构统一：与 type 无关的项也照样输出，用 `-` 表示"本轮不适用"。
             // 这样每个 summary.txt 的键集合完全一致，comparison.csv 里不会出现空白单元格。
             val usesFlashSwap = config.swapType == ArgType.ONLY_FLASH_SWAP.code ||
-                config.swapType == ArgType.ZSWAP.code ||
+                (ArgType.fromCode(config.swapType)?.usesZswap == true) ||
                 config.swapType == ArgType.ZRAM_WRITEBACK.code
             val usesWriteback = config.swapType == ArgType.ZRAM_WRITEBACK.code
-            val usesZswap = config.swapType == ArgType.ZSWAP.code
+            val usesZswap = (ArgType.fromCode(config.swapType)?.usesZswap == true)
             appendLine("config.flashSwapMiB=${if (usesFlashSwap) config.flashSwapDeviceSizeMB else "-"}")
             appendLine("config.writebackIntervalSec=${if (usesWriteback) config.zramWritebackIntervalSec else "-"}")
             appendLine("config.zswapMaxPoolPercent=${if (usesZswap) config.zswapMaxPoolPercent else "-"}")

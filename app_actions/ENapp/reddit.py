@@ -7,9 +7,8 @@ import json
 import math
 from pathlib import Path
 
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import require_app_ui
-from uiautomator2.exceptions import XPathElementNotFoundError
 from flow_controls import capture, wait_value, save_failure
 
 
@@ -28,19 +27,30 @@ def first_post(screen):
 
 
 def detail_scroll(screen):
-    if home_feed(screen):
+    details = [
+        node for node in screen.nodes
+        if screen.rid(node) == "post_detail_scaffold"
+    ]
+    if not details:
         return None
-    candidates = []
-    for node in screen.nodes:
-        left, top, right, bottom = screen.box(node)
-        if node.get("scrollable") == "true" and bottom - top > right - left:
-            candidates.append(node)
 
-    roots = [n for n in candidates if not any(
-        n is not other and n in list(other.iter()) for other in candidates)]
-    if len(roots) > 1:
-        raise RuntimeError("详情页有多个独立纵向滚动容器，需要详情页 XML")
-    return roots[0] if roots else None
+    detail_nodes = {
+        node
+        for detail in details
+        for node in detail.iter("node")
+    }
+    containers = [
+        node for node in screen.nodes
+        if node in detail_nodes
+        and screen.rid(node) == "feed_lazy_column"
+        and node.get("scrollable") == "true"
+    ]
+
+    if len(containers) == 1:
+        return containers[0]
+
+    # 页面切换中暂时没有唯一列表，交给现有等待机制重试。
+    return None
 
 
 def main():
@@ -76,19 +86,13 @@ def main():
                   (name, row["status"], row["elapsed_seconds"]), flush=True)
 
     try:
-        device = u2.connect()
+        device = connect_device()
         device.implicitly_wait(0)
         require_app_ui(device, package, timeout=args.timeout)
 
         def find_post():
             screen = capture(device, package)
             node = first_post(screen)
-            if node is None and not result.get("empty_feed_refresh_attempted") and any(
-                    screen.label(n) in {"啊，太空了", "Wow, such empty"} for n in screen.nodes):
-                surfaces = [n for n in screen.nodes if screen.rid(n) == "home_screen_surface"]
-                if surfaces:
-                    screen.element(device, surfaces[0]).swipe("down", scale=0.5)
-                    result["empty_feed_refresh_attempted"] = True
             return (screen, node) if node is not None else None
 
         def locate_detail():
@@ -97,21 +101,11 @@ def main():
             return (screen, node) if node is not None else None
 
         def open_post():
-            def click_current_post():
-                value = find_post()
-                if value is None:
-                    return None
-                screen, post = value
-                try:
-                    device.xpath(screen.path(post)).click(timeout=0.5)
-                    return {"description": screen.label(post)}
-                except XPathElementNotFoundError:
-                    return None
-
-            clicked = wait_value(click_current_post, max(args.timeout, 20),
-                                 "首页帖子未加载或持续更新，请检查网络及失败 XML")
+            screen, post = wait_value(find_post, args.timeout, "首页第一篇帖子未出现")
+            description = screen.label(post)
+            screen.element(device, post).click()
             wait_value(locate_detail, args.timeout, "未离开首页或未出现详情滚动容器")
-            return {"method": "first_home_post_unit_control", "description": clicked["description"],
+            return {"method": "first_home_post_unit_control", "description": description,
                     "home_left_verified": True, "detail_scroll_container_verified": True,
                     "post_content_verified": False}
 

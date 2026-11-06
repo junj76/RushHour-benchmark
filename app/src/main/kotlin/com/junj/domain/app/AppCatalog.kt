@@ -49,7 +49,10 @@ val globalAppInfos = arrayOf(
     ApplicationInfo("github", "com.github.android", "com.github.android/.main.MainActivity"),
     ApplicationInfo("gmail", "com.google.android.gm", "com.google.android.gm/.ConversationListActivityGmail"),
     ApplicationInfo("gmap", "com.google.android.apps.maps", "com.google.android.apps.maps/com.google.android.maps.MapsActivity"),
-    ApplicationInfo("google", "com.google.android.googlequicksearchbox", "com.google.android.googlequicksearchbox/.SearchActivity"),
+    ApplicationInfo(
+        "google", "com.google.android.googlequicksearchbox", "com.google.android.googlequicksearchbox/.SearchActivity",
+        processName = "com.google.android.googlequicksearchbox:googleapp",
+    ),
     ApplicationInfo("gtranslate", "com.google.android.apps.translate", "com.google.android.apps.translate/.TranslateActivity"),
     ApplicationInfo("ins", "com.instagram.android", "com.instagram.android/.activity.MainTabActivity"),
     ApplicationInfo("pinterest", "com.pinterest", "com.pinterest/.activity.PinterestActivity"),

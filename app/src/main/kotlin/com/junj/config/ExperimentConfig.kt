@@ -12,7 +12,7 @@ const val DEFAULT_SWAP_IN_LAT_SAMPLE_RATE = 5
 /** zRAM writeback 的默认间隔（秒）；Android 自己那套是分钟/小时级（ro.zram.*），这里按实验需要做成秒级。 */
 const val DEFAULT_ZRAM_WRITEBACK_INTERVAL_SEC = 60
 
-/** zswap max_pool_percent default (percent of RAM); only used by -t 4 (zSwap). */
+/** zswap max_pool_percent default (percent of RAM); only used by -t 4/5 (zSwap). */
 const val DEFAULT_ZSWAP_MAX_POOL_PERCENT = 20
 
 data class ExperimentConfig(

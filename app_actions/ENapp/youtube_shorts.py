@@ -7,9 +7,9 @@ import json
 import math
 from pathlib import Path
 
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import require_app_ui
-from flow_controls import capture, shorts_tab, shorts_viewer, shorts_content, wait_value, save_failure, ensure_youtube_home
+from flow_controls import capture, shorts_tab, shorts_viewer, shorts_content, wait_value, save_failure
 
 
 def scheduled_swipes(device, package, started, total_seconds, rows,
@@ -83,10 +83,9 @@ def main():
               "verification": "gesture_execution_only"}
     device = None
     try:
-        device = u2.connect()
+        device = connect_device()
         device.implicitly_wait(0)
         require_app_ui(device, package, timeout=args.timeout)
-        result["home_preparation"] = ensure_youtube_home(device, package, args.timeout)
 
         def find_tab():
             screen = capture(device, package)
@@ -118,7 +117,6 @@ def main():
         )
         result["swipe_count"] = sum(row["status"] == "PASS" for row in result["steps"]
                                     if row["name"].startswith("scroll_next_short_"))
-        result["return_home"] = ensure_youtube_home(device, package, args.timeout)
         result["status"] = "COMPLETED"
     except Exception as exc:
         result["error"] = "%s: %s" % (type(exc).__name__, exc)

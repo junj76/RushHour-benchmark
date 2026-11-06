@@ -83,10 +83,7 @@ flowchart TD
     M -- 是 --> N[生成 CSV 与 summary]
 ```
 
-默认每次运行包含 5 个 round。每个 round 会按照同一应用顺序启动全部 App，然后检查本轮启动进程是否存活。
-
-> [!NOTE]
-> 当前 `Main.kt` 虽然在每轮后对局部变量执行了 `apps.reversed()`，但 `ExperimentRunner` 已在创建时持有原列表，因此实际各轮仍使用相同顺序。
+默认每次运行包含 5 个 round。第 1 轮按 seed 打乱后的初始顺序启动全部 App，此后每轮反转上一轮的启动顺序（例如 `A → B → C`、`C → B → A`、`A → B → C`）。每轮启动结束后检查本轮启动进程是否存活，`launchPosition` 按本轮实际启动顺序记录。
 
 ---
 
@@ -113,8 +110,8 @@ flowchart TD
 - 被测 App 已安装，包名和启动 Activity 与项目配置一致
 - 锁屏未设置 PIN、密码或图案，或者运行前已手动解锁
 - Flash Swap 模式允许写入 `/data/per_boot/`
-- zSwap 模式的内核支持 zSwap 和 debugfs
-- zRAM Writeback 模式（`-t 4`）的内核提供 `/sys/block/zram0/{idle,writeback,backing_dev}` 节点，且 `/data` 放得下 `-f` 指定的后端文件
+- zSwap 模式（`-t 4/5`）的内核支持 zSwap 和 debugfs；`-t 5` 还需支持 `zbud` zpool
+- zRAM Writeback 模式（`-t 2`）的内核提供 `/sys/block/zram0/{idle,writeback,backing_dev}` 节点，且 `/data` 放得下 `-f` 指定的后端文件
 
 建议先检查：
 
@@ -174,10 +171,13 @@ cd app_actions && .venv/bin/python3 -m unittest test_run_app.py
 
 | 参数 | 必填 | 默认值 | 说明 |
 |---|:---:|---:|---|
-| `-t`, `--type` | ✅ | — | Swap 类型，取值 `0..3` |
+| `-t`, `--type` | ✅ | — | Swap 类型，取值 `0..5` |
 | `-a`, `--app-set` | ✅ | — | 应用集合，取值 `0..2` |
 | `-s`, `--seed` | ❌ | `0` | 应用初始顺序的随机种子 |
 | `-p`, `--logPath` | ❌ | — | 添加到输出目录名末尾的标识 |
+| `-f`, `--flash_size` | ❌ | `4096` | 后端存储大小（MB），适用于 `-t 2/3/4/5`，必须大于 0 |
+| `-w`, `--writeback_interval` | ❌ | `60` | zRAM 下刷间隔（秒），仅适用于 `-t 2`，必须大于 0 |
+| `-m`, `--max_pool_percent` | ❌ | `20` | zSwap 内存池占 RAM 的最大百分比，适用于 `-t 4/5`，范围 `1..100` |
 
 > `--logPath` 当前不是任意文件系统路径，只是输出目录名的后缀。
 
@@ -187,17 +187,27 @@ cd app_actions && .venv/bin/python3 -m unittest test_run_app.py
 |---:|---|---|
 | `0` | 🚫 No Swap | 对 `/dev/block/zram0` 执行 `swapoff` |
 | `1` | ⚡ Only zRAM | 保持设备启动后的现有 zRAM 配置 |
-| `2` | 💽 Flash Swap | 关闭 zRAM，创建并启用 `/data/per_boot/flash.swap` |
-| `3` | 🔁 zSwap | 关闭 zRAM，启用 Flash Swap、zSwap，并挂载 debugfs |
-| `4` | ♻️ zRAM + Writeback | 先读 `/sys/block/zram0/backing_dev`：**大小与 `-f` 相同就复用并校验 loop direct I/O**；不同则 reset 后摘掉旧 loop、删掉 `/data` 下的旧文件，再按 `-f` 建新文件 + loop，设置 4096-byte block size 和 direct I/O 后写入 `backing_dev`。测试期间每 `-w` 秒置 idle 并下刷 |
+| `2` | ♻️ zRAM + Writeback | 先读 `/sys/block/zram0/backing_dev`：**大小与 `-f` 相同就复用并校验 loop direct I/O**；不同则 reset 后摘掉旧 loop、删掉 `/data` 下的旧文件，再按 `-f` 建新文件 + loop，设置 4096-byte block size 和 direct I/O 后写入 `backing_dev`。测试期间每 `-w` 秒置 idle 并下刷 |
+| `3` | 💽 Flash Swap | 关闭 zRAM，创建并启用 `/data/per_boot/flash.swap` |
+| `4` | 🔁 zSwap | 关闭 zRAM，启用 Flash Swap、zSwap，并挂载 debugfs |
+| `5` | 🔁 zswap(zbud) | 与 `-t 4` 使用相同的 Flash Swap、参数和采样流程，启用前将 zSwap 的 `zpool` 设为 `zbud` |
 
-`-f/--flash_size` 是**后端存储大小**（MB，默认 `4096`）：`-t 2/3` 是 flash swap 文件，`-t 4` 是 zRAM 后端文件。
-`-w/--writeback_interval` 是 zRAM 下刷间隔（秒，默认 `60`），仅 `-t 4` 有效。运行目录名形如
+`-f/--flash_size` 是**后端存储大小**（MB，默认 `4096`）：`-t 3/4/5` 是 flash swap 文件，`-t 2` 是 zRAM 后端文件。
+`-w/--writeback_interval` 是 zRAM 下刷间隔（秒，默认 `60`），仅 `-t 2` 有效。运行目录名形如
 `..._heavy_zramWriteback1024_wb30s`。这轮是复用还是重建，记在 summary 的
 `config.zramBackingAction`（`reused` / `recreated`）里。
 
+`-t 4` 和 `-t 5` 都接受 `-f/--flash_size` 与 `-m/--max_pool_percent`，默认值分别为 `4096` MB 和 `20`，不接受 `-w`。
+`-t 5` 的结果目录后缀是 `_zswap(zbud)${size}_m${percent}`，显示标签为 `zswap(zbud)`；`-t 4` 保持 `_zswap${size}_m${percent}`。
+两种模式都会探测 Flash Swap 设备、zSwap 参数（含 `zpool`）和计数器，并在 summary 头部记录 `config.flashSwapMiB`、`config.zswapMaxPoolPercent`。
+
+```bash
+./gradlew run --args="-t 5 -a 10 -f 2048 -m 5 --seed 42"
+# 结果目录后缀：_workload10_zswap(zbud)2048_m5
+```
+
 > [!IMPORTANT]
-> `-t 4` 需要内核提供 `/sys/block/zram0/{idle,writeback,backing_dev}`。**判据是这些节点存在，不要只看 `/proc/config.gz`**：Android 上 zRAM 常是厂商模块（tokay 上 `comp_algorithm` 第一个是厂商私有的 `lz77eh`，而 GKI 的 config.gz 里写着 `CONFIG_ZRAM_WRITEBACK is not set`），两者配置并不一致。缺节点时程序会直接报错退出，避免产出名不副实的数据。
+> `-t 2` 需要内核提供 `/sys/block/zram0/{idle,writeback,backing_dev}`。**判据是这些节点存在，不要只看 `/proc/config.gz`**：Android 上 zRAM 常是厂商模块（tokay 上 `comp_algorithm` 第一个是厂商私有的 `lz77eh`，而 GKI 的 config.gz 里写着 `CONFIG_ZRAM_WRITEBACK is not set`），两者配置并不一致。缺节点时程序会直接报错退出，避免产出名不副实的数据。
 
 > 自建 loop 不能仅执行 `losetup DEVICE FILE`：Android 原生 fs_mgr 还会执行
 > `LOOP_SET_BLOCK_SIZE(4096)` 和 `LOOP_SET_DIRECT_IO(1)`。本项目使用随程序打包的

@@ -36,7 +36,7 @@ class TouchSimulator(
         val launcher = actionsDirectory.parent.resolve("wsl_run_app.sh")
         val runner = actionsDirectory.resolve("run_app.py")
         check(Files.isRegularFile(launcher)) {
-            "Windows Python launcher is unavailable: $launcher"
+            "App action Python launcher is unavailable: $launcher"
         }
         check(Files.isRegularFile(runner)) {
             "App action runner is unavailable: $runner"

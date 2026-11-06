@@ -20,7 +20,6 @@ import java.lang.Thread.sleep
 
 class ExperimentRunner(
     private val adb: AdbExecutor,
-    private val apps: List<ApplicationInfo>,
     private val results: ExperimentResults,
     private val logger: Logger,
     private val config: ExperimentConfig,
@@ -32,7 +31,7 @@ class ExperimentRunner(
         val launchedPid: Long?,
     )
 
-    fun runTestRound(round: Int) {
+    fun runTestRound(round: Int, apps: List<ApplicationInfo>) {
         val touchSimulator = TouchSimulator(adb)
         val launchedProcesses = ArrayList<LaunchedAppProcess>()
         for ((index, app) in apps.withIndex()) {
@@ -47,7 +46,7 @@ class ExperimentRunner(
                     ?: error("No launcher activity for ${app.name} (${app.packageName}); check installation")
             }
             val amStartResult = adb.shell(buildAppLaunchCommand(component))
-            val launchedPid = waitForApplicationPid(adb, app.packageName)
+            val launchedPid = waitForApplicationPid(adb, app.processName)
             touchSimulator.simulate(app.name)
             sleepUntil(launchStartNs + config.collectDelayMs * 1_000_000L)
             val gfxinfo = adb.shell("dumpsys gfxinfo ${app.packageName}")
@@ -79,10 +78,10 @@ class ExperimentRunner(
         }
 
         val roundSurvivals = launchedProcesses.map { launched ->
-            val pidAtRoundEnd = getApplicationPid(adb, launched.app.packageName)
+            val pidAtRoundEnd = getApplicationPid(adb, launched.app.processName)
             val originalProcessAlive = isApplicationProcessAlive(
                 adb = adb,
-                packageName = launched.app.packageName,
+                processName = launched.app.processName,
                 pid = launched.launchedPid,
             )
 

@@ -57,7 +57,6 @@ fun main(args: Array<String>) = runBlocking {
     val clock = TestClock()
     val runner = ExperimentRunner(
         adb = ProcessAdbExecutor,
-        apps = apps,
         results = results,
         logger = logger,
         config = config,
@@ -73,9 +72,9 @@ fun main(args: Array<String>) = runBlocking {
     val logcatProcess = startLogcatProcess(output.logcat)
 
     try {
-        ProcessAdbExecutor.rootShell("""am start -W -n hello.litiaotiao.app/hello.litiaotiao.app.MainActivity""")
+//        ProcessAdbExecutor.rootShell("""am start -W -n hello.litiaotiao.app/hello.litiaotiao.app.MainActivity""")
         for (round in 1..config.testRoundCount) {
-            runner.runTestRound(round)
+            runner.runTestRound(round, apps)
             apps = apps.reversed()
         }
     } finally {
@@ -94,7 +93,7 @@ fun main(args: Array<String>) = runBlocking {
             testRoundCount = config.testRoundCount,
             compressionEngine = when (config.swapType) {
                 ArgType.ONLY_ZRAM.code, ArgType.ZRAM_WRITEBACK.code -> CompressionEngine.ZRAM
-                ArgType.ZSWAP.code -> CompressionEngine.ZSWAP
+                ArgType.ZSWAP.code, ArgType.ZSWAP_ZBUD.code -> CompressionEngine.ZSWAP
                 else -> CompressionEngine.NONE
             },
             runtimeMs = elapsedMs,

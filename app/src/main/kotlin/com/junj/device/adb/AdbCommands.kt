@@ -8,11 +8,14 @@ data class CommandResult(
 interface AdbExecutor {
     fun shell(command: String): CommandResult
     fun rootShell(command: String): CommandResult
+    fun rootShell(command: String, expectedFailure: (CommandResult) -> Boolean): CommandResult = rootShell(command)
 }
 
 object ProcessAdbExecutor : AdbExecutor {
     override fun shell(command: String): CommandResult = runAdbShellCommand(command)
     override fun rootShell(command: String): CommandResult = runAdbRootShellCommand(command)
+    override fun rootShell(command: String, expectedFailure: (CommandResult) -> Boolean): CommandResult =
+        runAdbRootShellCommand(command, expectedFailure)
 }
 
 fun runBashCommand(command: String): CommandResult {
@@ -57,7 +60,10 @@ fun runAdbShellCommand(command: String) : CommandResult {
  * 裸 `su` 会得到 `su: inaccessible or not found`，于是所有 root 操作静默失败。
  * 这里先在设备上挑一个存在的 su，再 `exec` 它——此时 stdin 还没被读过，脚本仍会完整交给 `sh`。
  */
-fun runAdbRootShellCommand(command: String): CommandResult {
+fun runAdbRootShellCommand(
+    command: String,
+    expectedFailure: (CommandResult) -> Boolean = { false },
+): CommandResult {
     val hostScript =
         "printf '%s\\n' \"\$ADB_ROOT_COMMAND\" | " +
             "adb.exe shell 'SU=/debug_ramdisk/su; " +
@@ -84,12 +90,12 @@ fun runAdbRootShellCommand(command: String): CommandResult {
 
     val exitCode = process.waitFor()
 
-    // Centralised failure reporting for every root shell call: name the exact command that did not
-    // complete, so callers no longer need a per-call exit-code check.
-    if (exitCode != 0) {
+    val result = CommandResult(exitCode, output)
+    // Probes may expect an absent process; transport and permission errors still get reported.
+    if (exitCode != 0 && !expectedFailure(result)) {
         println("[adb] root command failed (exit=$exitCode): $command")
         output.trim().takeIf { it.isNotEmpty() }?.let { println(it) }
     }
 
-    return CommandResult(exitCode, output)
+    return result
 }

@@ -7,7 +7,7 @@ import json
 import math
 from pathlib import Path
 
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import require_app_ui
 
 
@@ -152,7 +152,7 @@ def main():
 
     try:
         connect_started = time.monotonic()
-        d = u2.connect()
+        d = connect_device()
         result["connect_seconds"] = round(
             time.monotonic() - connect_started, 3
         )

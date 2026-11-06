@@ -20,13 +20,16 @@ enum class ArgType(val code: Int) {
 
     /**
      * Codes follow the declaration order:
-     * 0 = no swap, 1 = zRAM, 2 = zRAM + writeback, 3 = flash swap, 4 = zSwap.
+     * 0 = no swap, 1 = zRAM, 2 = zRAM + writeback, 3 = flash swap, 4 = zSwap, 5 = zSwap (zbud).
      * Keep this comment, the `-t` help text and the README table in sync when renumbering;
      * the run directory suffix and every summary.txt rely on these codes.
      */
     ZRAM_WRITEBACK(2),
     ONLY_FLASH_SWAP(3),
-    ZSWAP(4);
+    ZSWAP(4),
+    ZSWAP_ZBUD(5);
+
+    val usesZswap: Boolean get() = this == ZSWAP || this == ZSWAP_ZBUD
 
     companion object {
         fun fromCode(code: Int): ArgType? = entries.firstOrNull { it.code == code }
@@ -42,7 +45,7 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
     val type: Int by option(
         "-t",
         "--type",
-        help = "Swap type: 0=no swap, 1=zRAM, 2=zRAM + backing device writeback, 3=flash swap, 4=zSwap",
+        help = "Swap type: 0=no swap, 1=zRAM, 2=zRAM + backing device writeback, 3=flash swap, 4=zSwap (zsmalloc), 5=zSwap (zbud)",
     )
         .int()
         .required()
@@ -83,7 +86,7 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
         "-f",
         "--flash_size",
         help = "Backing storage size in MB: the flash swap file for -t ${ArgType.ONLY_FLASH_SWAP.code}/" +
-            "${ArgType.ZSWAP.code}, or the zRAM backing file for -t ${ArgType.ZRAM_WRITEBACK.code}. " +
+            "${ArgType.ZSWAP.code}/${ArgType.ZSWAP_ZBUD.code}, or the zRAM backing file for -t ${ArgType.ZRAM_WRITEBACK.code}. " +
             "Optional, defaults to $DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB MB.",
     )
         .int()
@@ -99,7 +102,7 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
     val zswapMaxPoolPercent: Int? by option(
         "-m",
         "--max_pool_percent",
-        help = "zswap max_pool_percent (percent of RAM); only used by -t ${ArgType.ZSWAP.code}. " +
+        help = "zswap max_pool_percent (percent of RAM); only used by -t ${ArgType.ZSWAP.code}/${ArgType.ZSWAP_ZBUD.code}. " +
             "Optional, defaults to $DEFAULT_ZSWAP_MAX_POOL_PERCENT.",
     )
         .int()
@@ -113,11 +116,11 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
     if (flashSize != null) {
         require(
             command.type == ArgType.ONLY_FLASH_SWAP.code ||
-                command.type == ArgType.ZSWAP.code ||
+                ArgType.fromCode(command.type)?.usesZswap == true ||
                 command.type == ArgType.ZRAM_WRITEBACK.code
         ) {
             "-f/--flash_size is only applicable to the backing-storage types: " +
-                "-t ${ArgType.ONLY_FLASH_SWAP.code} (flash swap), -t ${ArgType.ZSWAP.code} (zSwap) " +
+                "-t ${ArgType.ONLY_FLASH_SWAP.code} (flash swap), -t ${ArgType.ZSWAP.code}/${ArgType.ZSWAP_ZBUD.code} (zSwap) " +
                 "or -t ${ArgType.ZRAM_WRITEBACK.code} (zRAM + writeback)"
         }
         require(flashSize > 0) { "flash_size must be greater than 0, got $flashSize" }
@@ -137,8 +140,8 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
 
     val maxPoolPercent = command.zswapMaxPoolPercent
     if (maxPoolPercent != null) {
-        require(command.type == ArgType.ZSWAP.code) {
-            "-m/--max_pool_percent is only applicable to -t ${ArgType.ZSWAP.code} (zSwap)"
+        require(ArgType.fromCode(command.type)?.usesZswap == true) {
+            "-m/--max_pool_percent is only applicable to -t ${ArgType.ZSWAP.code}/${ArgType.ZSWAP_ZBUD.code} (zSwap)"
         }
         require(maxPoolPercent in 1..100) {
             "max_pool_percent must be between 1 and 100, got $maxPoolPercent"
@@ -153,6 +156,7 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
             ArgType.ONLY_ZRAM.code -> append("_onlyZram")
             ArgType.ONLY_FLASH_SWAP.code -> append("_flashSwap$flashSwapDeviceSizeMB")
             ArgType.ZSWAP.code -> append("_zswap${flashSwapDeviceSizeMB}_m$zswapMaxPoolPercent")
+            ArgType.ZSWAP_ZBUD.code -> append("_zswap(zbud)${flashSwapDeviceSizeMB}_m$zswapMaxPoolPercent")
             ArgType.ZRAM_WRITEBACK.code ->
                 append("_zramWriteback${flashSwapDeviceSizeMB}_wb${zramWritebackIntervalSec}s")
         }

@@ -7,7 +7,7 @@ import json
 import math
 from pathlib import Path
 
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import require_app_ui
 from flow_controls import capture, twitch_clean_home, twitch_close, twitch_overlay, save_failure
 
@@ -165,18 +165,11 @@ def main():
 
     try:
         started = time.monotonic()
-        d = u2.connect()
+        d = connect_device()
         result["connect_seconds"] = round(time.monotonic() - started, 3)
         d.implicitly_wait(0)
         require_app_ui(d, package, timeout=args.timeout)
-        if control("chat").exists or control("presenter").exists:
-            result["initial_player_recovery"] = return_to_feed()
-        home_tab = control("home")
-        if home_tab.exists and not control("home", selected=True).exists:
-            home_tab.click()
         wait(home, "请从 Twitch 首页内容流开始运行")
-        if twitch_overlay(capture(d, package)):
-            result["initial_miniplayer_recovery"] = close_miniplayer()
         if control("presenter").exists:
             raise RuntimeError("开始前请先关闭现有播放器")
         result["initialization_seconds"] = round(time.monotonic() - SCRIPT_STARTED, 3)

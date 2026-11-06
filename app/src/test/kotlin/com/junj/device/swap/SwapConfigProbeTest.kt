@@ -34,10 +34,13 @@ class SwapConfigProbeTest {
         assertTrue(labels(ArgType.ONLY_FLASH_SWAP.code).any { it.contains("flash swap device") })
         assertTrue(labels(ArgType.ONLY_FLASH_SWAP.code).none { it.contains("zswap") })
 
-        val zswap = labels(ArgType.ZSWAP.code)
-        assertTrue(zswap.any { it.contains("flash swap device") }, zswap.toString())
-        assertTrue(zswap.any { it.contains("zswap parameters") }, zswap.toString())
-        assertTrue(zswap.any { it.contains("zswap counters") }, zswap.toString())
+        for (type in listOf(ArgType.ZSWAP, ArgType.ZSWAP_ZBUD)) {
+            val zswap = labels(type.code)
+            assertTrue(zswap.any { it.contains("flash swap device") }, zswap.toString())
+            assertTrue(zswap.any { it.contains("zswap parameters") }, zswap.toString())
+            assertTrue(zswap.any { it.contains("zswap counters") }, zswap.toString())
+        }
+        assertEquals(swapConfigProbes(ArgType.ZSWAP.code), swapConfigProbes(ArgType.ZSWAP_ZBUD.code))
     }
 
     @Test

@@ -1,7 +1,7 @@
 import argparse
 from pathlib import Path
 
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import visible_ui_packages
 
 
@@ -12,7 +12,7 @@ args = parser.parse_args()
 if not args.name.replace("_", "").isalnum():
     parser.error("--name 只能包含字母、数字和下划线")
 
-d = u2.connect()
+d = connect_device()
 folder = Path(__file__).resolve().parent / "ui_dumps"
 folder.mkdir(exist_ok=True)
 

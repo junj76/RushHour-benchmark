@@ -7,7 +7,7 @@ import json
 import math
 from pathlib import Path
 
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import require_app_ui
 
 
@@ -165,51 +165,77 @@ def main():
         }
 
     def input_keyword():
-        automation_packages = {
-            "com.github.uiautomator",
-            "com.android.adbkeyboard",
-            "io.appium.settings",
-        }
+        classes = (
+            "android.widget.EditText",
+            "android.widget.AutoCompleteTextView",
+            "android.widget.MultiAutoCompleteTextView",
+        )
 
-        current = device.current_ime()
-        if current.split("/")[0] in automation_packages:
-            output = device.shell(["ime", "list", "-s"]).output
-            normal_imes = [
-                line.strip()
-                for line in output.splitlines()
-                if "/" in line
-                and line.strip().split("/")[0]
-                not in automation_packages
-            ]
+        deadline = time.monotonic() + 2.0
+        field = None
+        counts = {}
 
-            if not normal_imes:
-                raise RuntimeError(
-                    "未找到已启用的普通输入法"
+        print("[github] 开始查找搜索输入框", flush=True)
+
+        while time.monotonic() < deadline:
+            candidates = []
+            counts = {}
+
+            for class_name in classes:
+                target = device(
+                    packageName=package,
+                    className=class_name,
+                    enabled=True,
                 )
+                count = target.count
+                counts[class_name] = count
 
-            # Prefer a configured keyboard; otherwise use the first one.
-            selected = config.get("normal_ime") or normal_imes[0]
-            if selected not in normal_imes:
-                raise RuntimeError(
-                    "配置的普通输入法未启用"
-                )
+                if count == 1:
+                    candidates.append(target)
+                elif count > 1:
+                    focused = device(
+                        packageName=package,
+                        className=class_name,
+                        enabled=True,
+                        focused=True,
+                    )
+                    if focused.count == 1:
+                        candidates.append(focused)
 
-            device.shell(["ime", "set", selected])
-            wait_until(
-                lambda: device.current_ime() == selected,
-                "未能切换到普通输入法",
+            if len(candidates) == 1:
+                field = candidates[0]
+                break
+
+            time.sleep(0.1)
+
+        print(
+            "[github] 输入框匹配数量："
+            + json.dumps(counts, ensure_ascii=False),
+            flush=True,
+        )
+
+        if field is None:
+            raise RuntimeError(
+                "搜索输入框未唯一识别，需要当前搜索页 XML；"
+                "尚未执行文字输入"
             )
-            time.sleep(0.4)
 
-        device.clipboard = config["keyword"]
-        device.press(29, 0x1000)  
-        device.press(279)       
+        keyword = config["keyword"]
+        print("[github] 开始输入关键词", flush=True)
+
+        field.set_text(keyword, timeout=1.0)
+        actual = field.get_text(timeout=1.0)
+
+        if actual != keyword:
+            raise RuntimeError(
+                "输入校验失败：期望 %r，实际 %r"
+                % (keyword, actual)
+            )
 
         return {
-            "method": "normal_keyboard_clipboard_paste",
-            "keyboard": device.current_ime(),
-            "value": config["keyword"],
-            "input_verified": False,
+            "method": "unique_search_input_control",
+            "value": keyword,
+            "input_verified": True,
         }
 
     def submit_search():
@@ -239,13 +265,11 @@ def main():
             lambda: any_present(selectors["result_marker"]),
             "未找到搜索结果标识",
         )
-
-        print(
-            "[github] 额外等待 3 秒，等待搜索结果加载",
-            flush=True,
-        )
-        time.sleep(3.0)
-
+        # print(
+        #     "[github] 额外等待 3 秒，等待搜索结果加载",
+        #     flush=True,
+        # )
+        # time.sleep(3.0)
         return {
             "result_marker_verified": True,
             "extra_loading_wait_seconds": 3.0,
@@ -271,7 +295,7 @@ def main():
 
     try:
         connect_started = time.monotonic()
-        device = u2.connect()
+        device = connect_device()
 
         result["connect_seconds"] = round(
             time.monotonic() - connect_started,

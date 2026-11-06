@@ -7,7 +7,7 @@ import json
 import math
 from pathlib import Path
 
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import require_app_ui
 
 
@@ -81,7 +81,7 @@ def main():
 
     try:
         started = time.monotonic()
-        device = u2.connect()
+        device = connect_device()
         result["connect_seconds"] = round(
             time.monotonic() - started, 3
         )
@@ -174,7 +174,7 @@ def main():
         step("open_chart", open_chart)
         step("browse_down_1", browse_down)
         step("browse_down_2", browse_down)
-        step("browse_down_3", browse_down)
+        # step("browse_down_3", browse_down)
 
         if args.interval:
             time.sleep(args.interval)

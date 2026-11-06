@@ -9,9 +9,8 @@ import re
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import require_app_ui
-from flow_controls import save_failure, wait_value
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -183,40 +182,6 @@ def main():
 
         return {"value": keyword}
 
-    def place_ready():
-        if d(resourceId=package + ":id/search_list_layout").exists:
-            return False
-        title = d.xpath(
-            f"//*[@package='{package}' and @text={json.dumps(keyword, ensure_ascii=False)}]"
-            "[not(ancestor::*[@resource-id='com.google.android.apps.maps:id/search_omnibox_text_box'])]"
-        )
-        return bool(title.exists) and (present(selectors["place_ready"]) or (
-            d(packageName=package, descriptionMatches="(?i)(路线|Directions)").exists
-            and d(packageName=package, descriptionMatches="(?i)(保存|Save)").exists))
-
-    def home_ready():
-        return (present(selectors["home"])
-                and not d(resourceId=package + ":id/search_list_layout").exists
-                and not d(resourceId=package + ":id/search_omnibox_text_clear").exists)
-
-    def restore_home():
-        backs = 0
-        for _ in range(2):
-            if home_ready():
-                return backs
-            if not (d(resourceId=package + ":id/search_list_layout").exists
-                    or d(resourceId=package + ":id/search_omnibox_text_clear").exists):
-                break
-            d.press("back")
-            backs += 1
-            try:
-                wait_value(home_ready, min(args.timeout, 2), "地图首页尚未恢复")
-                return backs
-            except RuntimeError:
-                pass
-        wait_value(home_ready, args.timeout, "地图首页未恢复，请检查失败 XML")
-        return backs
-
     def submit_search():
         text_literal = json.dumps(keyword, ensure_ascii=False)
         suggestion = d.xpath(
@@ -225,30 +190,12 @@ def main():
             "/*[@clickable='true']"
             f"[.//*[@text={text_literal}]]"
         )
-        if suggestion.wait(timeout=min(args.timeout, 3)):
-            suggestion.click(timeout=0.5)
-            method = "search_suggestion_xpath"
-        else:
-            # 网络建议可能不出现，直接提交已校验的搜索文字。
-            d.press("enter")
-            method = "enter_key"
-        cards = d.xpath(
-            f"//*[@resource-id='{package}:id/search_list_layout']"
-            "//android.view.ViewGroup[@clickable='true']"
-            "[.//*[@content-desc='路线' or @content-desc='Directions']]"
-            "[.//*[@content-desc='保存' or @content-desc='Save']]"
-        )
-        wait_value(lambda: place_ready() or cards.exists, args.timeout,
-                   "未出现地点结果列表或详情页")
-        if not place_ready():
-            cards.all()[0].click()
-            method += "_then_first_result_card"
-        wait_value(place_ready, args.timeout, "点击结果卡片后未进入目标地点详情")
+        suggestion.click(timeout=args.timeout)
         time.sleep(gestures["settle_seconds"])
 
         return {
-            "method": method,
-            "search_results_verified": True,
+            "method": "search_suggestion_xpath",
+            "search_results_verified": False,
         }   
 
     def browse_up():
@@ -261,7 +208,7 @@ def main():
 
     def first_return():
         swipe(gestures["swipe_right"])
-        extra_backs = restore_home()
+        wait_for(selectors["home"])
 
         result["home_elapsed_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
@@ -270,21 +217,19 @@ def main():
             "direction": "right",
             "swipe_count": 1,
             "home_verified": True,
-            "extra_back_count": extra_backs,
         }
 
     try:
         connect_started = time.monotonic()
-        d = u2.connect()
+        d = connect_device()
         result["connect_seconds"] = round(
             time.monotonic() - connect_started, 3
         )
 
         require_app_ui(d, package, timeout=args.timeout)
-        d.implicitly_wait(0)
 
         screen_size = d.window_size()
-        result["initial_back_count"] = restore_home()
+        wait_for(selectors["home"])
 
         result["initialization_seconds"] = round(
             time.monotonic() - SCRIPT_STARTED, 3
@@ -357,7 +302,6 @@ def main():
     except Exception as exc:
         error = "%s: %s" % (type(exc).__name__, exc)
         result["error"] = error
-        save_failure(d, "gmap", result)
 
         if row is not None and row["status"] == "RUNNING":
             row.update(status="FAIL", error=error)

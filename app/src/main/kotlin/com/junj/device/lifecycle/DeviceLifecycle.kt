@@ -8,7 +8,7 @@ private const val DEFAULT_REBOOT_TIMEOUT_SECONDS = 300L
 private const val REBOOT_POLL_INTERVAL_MS = 1_000L
 private const val SCREEN_WAKE_WAIT_MS = 1_000L
 private const val KEYGUARD_DISMISS_WAIT_MS = 1_000L
-private const val PRE_TEST_REST_WAIT_MS = 300_000L
+private const val PRE_TEST_REST_WAIT_MS = 30_000L
 private const val ANDROID_BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
 
 /** 24 小时：测试期间不允许息屏打断采样（息屏会改变 CPU/IO 负载与前台应用状态）。 */

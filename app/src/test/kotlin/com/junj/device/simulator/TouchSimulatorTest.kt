@@ -33,7 +33,7 @@ class TouchSimulatorTest {
     }
 
     @Test
-    fun `app action command uses Windows Python launcher and unified runner options`() {
+    fun `app action command uses app action launcher and unified runner options`() {
         val actionsDirectory = Paths.get("/tmp/app_actions/ENapp")
         val simulator = TouchSimulator(RecordingAdb(), actionsDirectory)
 

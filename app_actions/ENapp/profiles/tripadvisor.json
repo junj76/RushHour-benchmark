@@ -1,5 +1,5 @@
 {
     "package": "com.tripadvisor.tripadvisor",
-    "section_id": "DestinationsSection",
+    "section_id": "RecommendedDestinationsSection",
     "scroll_steps": 55
 }

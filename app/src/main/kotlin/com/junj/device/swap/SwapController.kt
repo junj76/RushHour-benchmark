@@ -52,17 +52,19 @@ class SwapController(
     }
 
     /**
-     * Enables zswap with [algorithmName] as compressor and [maxPoolPercent] as the pool cap.
+     * Enables zswap with [algorithmName] as compressor and [maxPoolPercent] as the pool cap, using [zpool] for compressed memory.
      *
      * `max_pool_percent` decides whether zswap ever spills to the flash swap: with a large pool the
      * pages stay compressed in RAM and nothing is written back (written_back_pages stays 0); with a
      * small pool accept_threshold_percent rejects pages, which are then written straight to the
-     * swap file. Both settings are read back so a rejected write is reported, not silently ignored.
+     * swap file. All settings are read back so a rejected write is reported, not silently ignored.
      */
     fun enableZswap(
         algorithmName: String = COMPRESSION_ALGORITHM,
         maxPoolPercent: Int = DEFAULT_ZSWAP_MAX_POOL_PERCENT,
+        zpool: String = "zsmalloc",
     ) {
+        require(zpool in setOf("zsmalloc", "zbud")) { "Unsupported zswap zpool: $zpool" }
         require(maxPoolPercent in 1..100) {
             "max_pool_percent must be between 1 and 100, got $maxPoolPercent"
         }
@@ -76,7 +78,14 @@ class SwapController(
         check(applied.exitCode == 0) {
             "Failed to set the zswap compressor to '$algorithmName': ${applied.output.trim()}"
         }
-        adb.rootShell("echo zsmalloc > /sys/module/zswap/parameters/zpool")
+        val poolApplied = adb.rootShell("echo $zpool > /sys/module/zswap/parameters/zpool")
+        check(poolApplied.exitCode == 0) {
+            "Failed to set the zswap zpool to '$zpool': ${poolApplied.output.trim()}"
+        }
+        val zpoolReadBack = adb.rootShell("cat /sys/module/zswap/parameters/zpool").output.trim()
+        check(zpoolReadBack == zpool) {
+            "zswap zpool did not take effect: expected '$zpool', read back '$zpoolReadBack'"
+        }
         adb.rootShell("echo Y > /sys/module/zswap/parameters/enabled")
 
         val compressorReadBack = adb.rootShell("cat /sys/module/zswap/parameters/compressor").output.trim()
@@ -87,7 +96,7 @@ class SwapController(
         check(poolReadBack == maxPoolPercent.toString()) {
             "zswap max_pool_percent did not take effect: expected $maxPoolPercent, read back '$poolReadBack'"
         }
-        println("zSwap enabled: compressor=$compressorReadBack, max_pool_percent=$poolReadBack")
+        println("zSwap enabled: compressor=$compressorReadBack, zpool=$zpoolReadBack, max_pool_percent=$poolReadBack")
 
         adb.rootShell("mount -t debugfs debugfs /sys/kernel/debug")
     }
@@ -107,11 +116,15 @@ class SwapController(
                 disableZram()
                 enableFlashSwap(config.flashSwapDeviceSizeMB)
             }
-            ArgType.ZSWAP.code -> {
-                logger.log(LogType.SUMMARY, "config.swapLabel=ZSWAP")
+            ArgType.ZSWAP.code, ArgType.ZSWAP_ZBUD.code -> {
+                val zbud = config.swapType == ArgType.ZSWAP_ZBUD.code
+                logger.log(LogType.SUMMARY, "config.swapLabel=${if (zbud) "zswap(zbud)" else "ZSWAP"}")
                 disableZram()
                 enableFlashSwap(config.flashSwapDeviceSizeMB)
-                enableZswap(maxPoolPercent = config.zswapMaxPoolPercent)
+                enableZswap(
+                    maxPoolPercent = config.zswapMaxPoolPercent,
+                    zpool = if (zbud) "zbud" else "zsmalloc",
+                )
             }
             ArgType.ZRAM_WRITEBACK.code -> {
                 logger.log(LogType.SUMMARY, "config.swapLabel=zRAM + writeback")
@@ -176,7 +189,7 @@ internal fun swapConfigProbes(
     add(SwapConfigProbe("zram0 comp_algorithm", "cat $zramSysfs/comp_algorithm"))
 
     when (swapType) {
-        ArgType.ONLY_FLASH_SWAP.code, ArgType.ZSWAP.code ->
+        ArgType.ONLY_FLASH_SWAP.code, ArgType.ZSWAP.code, ArgType.ZSWAP_ZBUD.code ->
             add(SwapConfigProbe("flash swap device", "dmctl table flash_swap"))
 
         ArgType.ZRAM_WRITEBACK.code -> {
@@ -195,7 +208,7 @@ internal fun swapConfigProbes(
         else -> Unit // noSwap / onlyZram: the common part already covers them
     }
 
-    if (swapType == ArgType.ZSWAP.code) {
+    if (ArgType.fromCode(swapType)?.usesZswap == true) {
         add(
             SwapConfigProbe(
                 "zswap parameters",

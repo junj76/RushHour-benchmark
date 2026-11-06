@@ -8,381 +8,245 @@ import math
 from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
-import uiautomator2 as u2
-from app_ui import require_app_ui
-from flow_controls import ensure_youtube_home, save_failure
 
-# BASE_DIR = ENapp 路径
+from device_connection import connect_device
+
+
 BASE_DIR = Path(__file__).resolve().parent
 
-def main():
-    step_labels = {
-        "open_search": "打开搜索",
-        "input_keyword": "输入关键词",
-        "submit_search": "提交搜索",
-        "open_first_video": "打开第一个视频",
-        "return_to_results": "返回搜索结果页",
-        "return_to_home": "返回首页",
-        "close_miniplayer": "关闭小窗",
-    }
 
+class BrowseDeadline(RuntimeError):
+    pass
+
+
+class Page:
+    def __init__(self, xml, config):
+        self.config = config
+        root = ET.fromstring(xml)
+        self.parents = {child: parent for parent in root.iter() for child in parent}
+        self.nodes = []
+        for node in root.iter("node"):
+            if node.get("package") != config["package"]:
+                continue
+            current = node
+            while current is not None and current.get("visible-to-user") != "false":
+                current = self.parents.get(current)
+            if current is not None:
+                continue
+            values = re.findall(r"-?\d+", node.get("bounds", ""))
+            if len(values) != 4:
+                continue
+            left, top, right, bottom = map(int, values)
+            if right > left and bottom > top:
+                self.nodes.append(node)
+        self.ids = {node.get("resource-id") for node in self.nodes}
+
+    def miniplayer(self):
+        return bool(self.ids.intersection(
+            self.config["miniplayer_ids"] + self.config["close_miniplayer_ids"]))
+
+    def player(self):
+        return bool(self.ids.intersection(self.config["player_ids"])) and not self.miniplayer()
+
+    def home(self):
+        if self.config["home_feed_id"] not in self.ids or self.player():
+            return False
+        navs = [node for node in self.nodes
+                if node.get("resource-id") == self.config["home_nav_id"]]
+        for nav in navs:
+            for node in nav.iter("node"):
+                label = node.get("content-desc", "").strip() or node.get("text", "").strip()
+                if not re.fullmatch(r"(?i)(Home|\u9996\u9875|\u4e3b\u9875)(?:[,\uff0c ].*)?", label):
+                    continue
+                current = node
+                while current is not None and current is not nav:
+                    if current.get("selected") == "true" or current.get("checked") == "true":
+                        return True
+                    current = self.parents.get(current)
+        return False
+
+
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--time", type=float, default=10)
     parser.add_argument("--interval", type=float, default=0.1)
     parser.add_argument("--timeout", type=float, default=10)
     args = parser.parse_args()
-    # 等待多久返回    每个步骤时间间隔    超时时间
-    values = (args.time, args.interval, args.timeout)
-    if not all(math.isfinite(value) for value in values):
-        parser.error("时间必须是有限的数值")
-    if args.time < 0 or args.interval < 0 or args.timeout <= 0:
-        parser.error("--time 和 --interval 必须大于或等于 0；--timeout 必须大于 0")
+    if not all(math.isfinite(value) for value in vars(args).values()) or (
+        args.time < 0 or args.interval < 0 or args.timeout <= 0
+    ):
+        parser.error("Finite times required: time/interval >= 0; timeout > 0")
+    config = json.loads((BASE_DIR / "profiles/youtube.json").read_text(encoding="utf-8-sig"))
+    result = {"app": "youtube", "package": config["package"], "status": "FAIL", "steps": []}
+    labels = {"open_first_video": "\u6253\u5f00\u9996\u9875\u7b2c\u4e00\u4e2a\u6761\u76ee",
+              "return_to_home": "\u8fd4\u56de\u9996\u9875",
+              "close_miniplayer": "\u5173\u95ed\u5c0f\u7a97"}
+    deadline = SCRIPT_STARTED + args.time
+    device = None
+    opened = False
+    click_sent = False
+    errors = []
 
-    config = json.loads(
-        (BASE_DIR / "profiles" / "youtube.json")
-        .read_text(encoding="utf-8-sig")
-    )
-    package = config["package"]
-    selectors = config["selectors"]
-    app = config["app"]
-    result = {
-        "app": app,
-        "package": package,
-        "keyword": config["keyword"],
-        "status": "FAIL",
-        "steps": [],
-    }
+    def elapsed():
+        return round(time.monotonic() - SCRIPT_STARTED, 3)
 
-    d = None
-    row = None
-    step_started = None
+    def check_time():
+        if time.monotonic() >= deadline:
+            raise BrowseDeadline("Browse deadline reached; switching to return")
 
-    # 检查某组选择器是否能找到控件
-    def present(rules):
-        return any(
-            d(packageName=package, **rule).exists
-            for rule in rules
-        )
+    def capture():
+        return Page(device.dump_hierarchy(compressed=False), config)
 
-    # 循环检查，直到满足条件或超时
-    def wait_until(check, message):
-        deadline = time.monotonic() + args.timeout
+    def wait(check, message, browsing=False):
+        stop = time.monotonic() + args.timeout
+        if browsing:
+            stop = min(stop, deadline)
         while True:
-            if check():
-                return
-            if time.monotonic() >= deadline:
+            if browsing:
+                check_time()
+            value = check()
+            if value:
+                return value
+            if browsing:
+                check_time()
+            remaining = stop - time.monotonic()
+            if remaining <= 0:
                 raise RuntimeError(message)
-            time.sleep(0.2)
+            time.sleep(min(max(args.interval, 0.1), remaining))
 
-    # 寻找唯一控件，必要时选最靠上的匹配项
-    def find_control(rules, first=False):
-        deadline = time.monotonic() + args.timeout
-
-        while True:
-            for rule in rules:
-                control = d(packageName=package, **rule)
-                count = control.count
-
-                if count == 1:
-                    return control
-
-                if count > 1 and first:
-                    matches = []
-                    for index in range(count):
-                        item = control[index]
-                        info = item.info
-                        box = info.get("visibleBounds") or info["bounds"]
-                        if (
-                            box["right"] > box["left"]
-                            and box["bottom"] > box["top"]
-                        ):
-                            matches.append(
-                                (box["top"], box["left"], index)
-                            )
-                    if matches:
-                        return control[min(matches)[2]]
-                    
-            # 如果一直找不到唯一控件，直到超时就报错
-            if time.monotonic() >= deadline:
-                raise RuntimeError(
-                    "控件不存在或匹配不唯一："
-                    + json.dumps(rules, ensure_ascii=False)
-                )
-            
-            time.sleep(0.2)
-
-    def home_active():
-        tree = ET.fromstring(
-            d.dump_hierarchy(compressed=True)
-        )
-        parents = {
-            child: parent
-            for parent in tree.iter()
-            for child in parent
-        }
-
-        for node in tree.iter("node"):
-            if node.get("package") != package:
-                continue
-
-            labels = (
-                node.get("text", "").strip(),
-                node.get("content-desc", "").strip(),
-            )
-            if not any(
-                re.fullmatch(
-                    r"(?:首页|Home)(?:[,， ].*)?",
-                    label,
-                    flags=re.I,
-                )
-                for label in labels
-            ):
-                continue
-
-            current = node
-            for _ in range(4):
-                if current is None:
-                    break
-                if current.get("selected") == "true":
-                    return True
-                current = parents.get(current)
-
-        return False
-
-    def open_search():
-        find_control(selectors["search_button"]).click()
-        wait_until(
-            lambda: present(selectors["search_input"]),
-            "搜索输入框未出现",
-        )
-
-    def input_keyword():
-        field = find_control(selectors["search_input"])
-        field.set_text(config["keyword"])
-
-        wait_until(
-            lambda: field.get_text() == config["keyword"],
-            "搜索输入内容校验失败",
-        )
-        return {"value": config["keyword"]}
-    
-    def submit_search():
-        d.press("enter")
-        time.sleep(1.0)
-        return {"verification": "deferred_until_video_open"}
-
-    # def scroll_results():
-    #     width, height = d.window_size()
-
-    #     d.swipe(
-    #         int(width * 0.50),
-    #         int(height * 0.75),
-    #         int(width * 0.50),
-    #         int(height * 0.35),
-    #         duration=0.3,
-    #     )
-    #     time.sleep(0.5)
-    #     return {"direction": "up", "swipe_count": 1}
+    def step(name, action):
+        row = {"name": name, "status": "FAIL"}
+        result["steps"].append(row)
+        started = time.monotonic()
+        try:
+            row["detail"] = action() or {}
+            row["status"] = "PASS"
+        except BrowseDeadline as exc:
+            row.update(status="DEADLINE", error=str(exc))
+            raise
+        except Exception as exc:
+            row["error"] = str(exc)
+            raise
+        finally:
+            row["elapsed_seconds"] = round(time.monotonic() - started, 3)
+            print("[youtube] %s %s in %.3fs" % (
+                labels[name], row["status"], row["elapsed_seconds"]), flush=True)
 
     def open_first_video():
-        # width, height = d.window_size()
+        nonlocal click_sent, opened
+        check_time()
+        # The supplied XML only exposes unlabeled direct children of the feed.
+        target = device.xpath(config["first_home_item_xpath"])
+        wait(lambda: target.exists, "First home feed item did not appear", browsing=True)
+        check_time()
+        element = target.get(timeout=min(0.2, max(0.01, deadline - time.monotonic())))
+        check_time()
+        result["video_click_started_elapsed_seconds"] = elapsed()
+        click_sent = True
+        element.click()
+        wait(lambda: capture().player(), "Click did not open a known video player", browsing=True)
+        opened = True
+        result["video_opened_elapsed_seconds"] = elapsed()
+        return {"method": "first_home_feed_item_control",
+                "xpath": config["first_home_item_xpath"],
+                "player_page_verified": True, "playback_verified": False,
+                "feed_item_video_identity_verified": False}
 
-        # x_ratio = 0.5
-        # y_ratio = 0.5
-
-        # d.click(
-        #     int(width * x_ratio),
-        #     int(height * y_ratio),
-        # )
-        video = find_control(selectors["first_video"], first=True)
-        video.click()
-
-        def video_page_opened():
-            search_query = d(
-                packageName=package,
-                resourceId=package + ":id/search_query",
-            )
-
-            return (
-                not search_query.exists
-                and present(selectors["player"])
-                and not present(selectors["miniplayer"])
-            )
-
-        wait_until(
-            video_page_opened,
-            "点击视频标题后，视频详情页未打开",
-        )
-
-        result["video_opened_elapsed_seconds"] = round(
-            time.monotonic() - SCRIPT_STARTED, 3
-        )
-
-        return {
-            "method": "first_video_selector",
-            "selector": selectors["first_video"],
-            "player_page_verified": True,
-        }
-
-    def return_to_results():
-        d.press("back")
-
-        wait_until(
-            lambda: d(
-                packageName=package,
-                resourceId=package + ":id/search_query",
-            ).exists,
-            "第一次返回后，搜索结果页未重新出现",
-        )
-
-        return {"search_query_visible": True}
-
-    def return_to_home():
-        d.press("back")
-        wait_until(
-            home_active,
-            "第二次返回后，未检测到处于选中状态的首页标签",
-        )
-        result["home_elapsed_seconds"] = round(
-            time.monotonic() - SCRIPT_STARTED, 3
-        )
+    def return_home():
+        page = capture()
+        if not page.home():
+            if not page.nodes:
+                raise RuntimeError("YouTube UI absent; no Back sent to another app")
+            result["back_sent_elapsed_seconds"] = elapsed()
+            device.press("back")
+            result["actual_return_count"] = 1
+            wait(lambda: capture().home(), "One Back did not restore the home feed; no extra Back sent")
+        result["home_elapsed_seconds"] = elapsed()
+        result["home_verified"] = True
+        return {"method": "android_back" if result["actual_return_count"] else "already_home",
+                "back_count": result["actual_return_count"], "home_verified": True}
 
     def close_miniplayer():
-        if not present(selectors["miniplayer"]):
-            if not present(selectors["close_miniplayer"]):
-                return {"method": "already_absent"}
+        page = capture()
+        if not page.home():
+            raise RuntimeError("Home feed not verified; refusing unrelated close controls")
+        if not page.miniplayer():
+            # Verify a second snapshot so a delayed miniplayer is not silently ignored.
+            time.sleep(max(args.interval, 0.25))
+            page = capture()
+            if page.home() and not page.miniplayer():
+                result["home_clean_elapsed_seconds"] = elapsed()
+                return {"method": "already_absent", "known_miniplayer_absent": True,
+                        "home_verified": True}
 
-        find_control(selectors["close_miniplayer"]).click()
+        def find_close():
+            current = capture()
+            if not current.home():
+                raise RuntimeError("Home feed disappeared while finding the miniplayer close button")
+            matches = [node for node in current.nodes
+                       if node.get("resource-id") in config["close_miniplayer_ids"]
+                       and node.get("enabled") != "false"]
+            if len(matches) > 1:
+                raise RuntimeError("Multiple miniplayer close buttons")
+            return matches[0].get("resource-id") if matches else None
 
-        wait_until(
-            lambda: (
-                not present(selectors["miniplayer"])
-                and not present(selectors["close_miniplayer"])
-            ),
-            "点击关闭后，小窗仍然可见",
-        )
-        wait_until(
-            home_active,
-            "关闭小窗后，首页标签校验失败",
-        )
-
-        return {
-            "method": "resource_id",
-            "miniplayer_closed": True,
-        }
+        close_id = wait(find_close, "Miniplayer visible but its close control was not found")
+        device(packageName=config["package"], resourceId=close_id).click(timeout=0.2)
+        def clean_home():
+            current = capture()
+            return current.home() and not current.miniplayer()
+        wait(clean_home, "Miniplayer still visible or home verification failed")
+        result["home_clean_elapsed_seconds"] = elapsed()
+        return {"method": "miniplayer_close_control", "known_miniplayer_absent": True,
+                "home_verified": True}
 
     try:
-        connect_started = time.monotonic()
-        d = u2.connect()
-
-        result["connect_seconds"] = round(
-            time.monotonic() - connect_started, 3
-        )
-
-        require_app_ui(d, package, timeout=args.timeout)
-
-        result["home_preparation"] = ensure_youtube_home(d, package, args.timeout)
-        wait_until(home_active, "未能恢复 YouTube 首页")
-
-        if present(selectors["miniplayer"]):
-            raise RuntimeError(
-                "运行前请先关闭现有小窗"
-            )
-
-        result["initialization_seconds"] = round(
-            time.monotonic() - SCRIPT_STARTED, 3
-        )
-        print(
-            "[%s] 初始化完成，耗时 %.3f 秒"
-            % (app, result["initialization_seconds"]),
-            flush=True,
-        )
-
-        steps = [
-            ("open_search", open_search),
-            ("input_keyword", input_keyword),
-            ("submit_search", submit_search),
-            # ("scroll_results", scroll_results),
-            ("open_first_video", open_first_video),
-            ("return_to_results", return_to_results),
-            ("return_to_home", return_to_home),
-            ("close_miniplayer", close_miniplayer),
-        ]
-
-        for index, (name, action) in enumerate(steps, 1):
-            if index > 1 and args.interval:
-                time.sleep(args.interval)
-
-            if name == "return_to_results":
-                remaining = max(
-                    0.0,
-                    SCRIPT_STARTED + args.time - time.monotonic(),
-                )
-                result["wait_before_return_seconds"] = round(
-                    remaining, 3
-                )
-
-                if remaining:
-                    print(
-                        "[%s] 等待 %.3f 秒后返回"
-                        % (app, remaining),
-                        flush=True,
-                    )
-                    time.sleep(remaining)
-
-                result["return_started_elapsed_seconds"] = round(
-                    time.monotonic() - SCRIPT_STARTED, 3
-                )
-
-            row = {"name": name, "status": "RUNNING"}
-            result["steps"].append(row)
-
-            print(
-                "[%s] 第 %02d 步：%s" % (app, index, step_labels.get(name, name)),
-                flush=True,
-            )
-
-            step_started = time.monotonic()
-            detail = action()
-
-            row.update(
-                status="PASS",
-                elapsed_seconds=round(
-                    time.monotonic() - step_started, 3
-                ),
-            )
-            if detail is not None:
-                row["detail"] = detail
-
-            print(
-                "[%s] %s 已完成，耗时 %.3f 秒"
-                % (app, step_labels.get(name, name), row["elapsed_seconds"]),
-                flush=True,
-            )
-            step_started = None
-
-        result["status"] = "PASS"
-
+        started = time.monotonic()
+        device = connect_device()
+        result["connect_seconds"] = round(time.monotonic() - started, 3)
+        device.implicitly_wait(0)
+        wait(lambda: capture().home(), "Start on the YouTube home feed", browsing=True)
+        if capture().miniplayer():
+            raise RuntimeError("Close the existing miniplayer before starting")
+        result["initialization_seconds"] = elapsed()
+        step("open_first_video", open_first_video)
+    except BrowseDeadline as exc:
+        result["browse_deadline_reached"] = True
+        errors.append(str(exc))
     except Exception as exc:
-        error = "%s: %s" % (type(exc).__name__, exc)
-        result["error"] = error
-        save_failure(d, "youtube", result)
-
-        if row is not None and row["status"] == "RUNNING":
-            row.update(status="FAIL", error=error)
-            if step_started is not None:
-                row["elapsed_seconds"] = round(
-                    time.monotonic() - step_started, 3
-                )
-
-        print("[%s] 失败：%s" % (app, error), flush=True)
-
+        errors.append("%s: %s" % (type(exc).__name__, exc))
     finally:
-        result["elapsed_seconds"] = round(
-            time.monotonic() - SCRIPT_STARTED, 3
-        )
-        print(json.dumps(result, ensure_ascii=False, indent=2))
-
+        result["actual_return_count"] = 0
+        if device is not None:
+            try:
+                remaining = max(0, deadline - time.monotonic())
+                result["wait_before_return_seconds"] = round(remaining, 3)
+                time.sleep(remaining)
+                result["return_started_elapsed_seconds"] = elapsed()
+                result["return_lateness_seconds"] = round(max(0, time.monotonic() - deadline), 3)
+                # Return also runs after an interrupted or failed opening attempt.
+                step("return_to_home", return_home)
+                step("close_miniplayer", close_miniplayer)
+            except Exception as exc:
+                errors.append("%s: %s" % (type(exc).__name__, exc))
+        if opened and not errors:
+            result["status"] = "PASS"
+        elif not opened and not errors:
+            errors.append("Video opening was not verified")
+        result["video_click_sent"] = click_sent
+        if errors:
+            result["error"] = "; ".join(errors)
+            if device is not None:
+                try:
+                    folder = BASE_DIR / "ui_dumps"
+                    folder.mkdir(exist_ok=True)
+                    path = folder / ("youtube_failure_%d.xml" % time.time_ns())
+                    path.write_text(device.dump_hierarchy(compressed=False), encoding="utf-8")
+                    result["failure_xml"] = str(path)
+                except Exception as exc:
+                    result["failure_xml_error"] = str(exc)
+        result["elapsed_seconds"] = elapsed()
+        print(json.dumps(result, ensure_ascii=False, indent=2), flush=True)
     return 0 if result["status"] == "PASS" else 1
 
 

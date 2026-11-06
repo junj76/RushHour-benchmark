@@ -3,15 +3,15 @@ SCRIPT_STARTED = time.monotonic()
 import argparse
 import json
 from pathlib import Path
-import uiautomator2 as u2
+from device_connection import connect_device
 from app_ui import require_app_ui
 
 def main():
     step_labels = {
         "browse_up": "返回天气页顶部",
         "browse_down": "向下浏览",
-        "hourly_left": "向左浏览逐小时天气",
-        "hourly_right": "向右浏览逐小时天气",
+        "hourly_left": "向左浏览天气",
+        "hourly_right": "向右浏览天气",
     }
     status_labels = {"PASS": "成功", "FAIL": "失败", "RUNNING": "执行中", "COMPLETED": "已完成"}
 
@@ -41,33 +41,42 @@ def main():
                 scrollable=True,
             )
 
-            if not control.wait(timeout=args.timeout):
+            if not control.wait(timeout=min(args.timeout, 1.5)):
                 raise RuntimeError(f"{step_labels.get(name, name)}: 滚动控件未出现")
             if control.count != 1:
                 raise RuntimeError(f"{step_labels.get(name, name)}: 匹配到多个滚动控件")
 
-            steps = cfg["scroll_steps"]
+            print("[weather] 已找到滚动控件，开始滑动", flush=True)
+            info = control.info
+            bounds = info.get("visibleBounds") or info["bounds"]
+            left = max(0, bounds["left"])
+            right = min(width, bounds["right"])
+            top = max(0, bounds["top"])
+            bottom = min(height, bounds["bottom"])
 
-            if name == "hourly_left":
-                reported = control.scroll.horiz.forward(steps=steps)
-            elif name == "hourly_right":
-                reported = control.scroll.horiz.backward(steps=steps)
-            elif name == "browse_down":
-                reported = control.scroll.vert.forward(steps=steps)
-            elif name == "browse_up":
-                reported = control.scroll.vert.toBeginning(
-                    max_swipes=10,
-                    steps=steps,
+            if right <= left or bottom <= top:
+                raise RuntimeError("滚动控件没有有效的可见区域")
+
+            def point(x, y):
+                return (
+                    int(left + (right - left) * x),
+                    int(top + (bottom - top) * y),
                 )
-            else:
-                raise RuntimeError(f"未知操作: {step_labels.get(name, name)}")
+
+            paths = {
+                "hourly_left": ((0.8, 0.5), (0.2, 0.5)),
+                "hourly_right": ((0.2, 0.5), (0.8, 0.5)),
+                "browse_down": ((0.5, 0.8), (0.5, 0.2)),
+                "browse_up": ((0.5, 0.2), (0.5, 0.8)),
+            }
+            start, end = paths[name]
+            d.swipe(*point(*start), *point(*end), duration=0.25)
 
             time.sleep(max(args.interval, cfg["settle_seconds"]))
             item.update(
                 status="PASS",
                 detail={
-                    "method": "android_scrollable_control",
-                    "android_reported_success": bool(reported),
+                    "method": "control_bounds_system_swipe",
                     "position_verified": False,
                 },
             )
@@ -86,7 +95,7 @@ def main():
             )
 
     try:
-        d = u2.connect()
+        d = connect_device()
         d.implicitly_wait(0)
         require_app_ui(d, cfg['package'], timeout=args.timeout)
         width, height = d.window_size()

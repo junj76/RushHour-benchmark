@@ -9,7 +9,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 // Code mapping (declaration order in ArgType):
-//   0 = noSwap, 1 = onlyZram, 2 = zramWriteback, 3 = flashSwap, 4 = zswap
+//   0 = noSwap, 1 = onlyZram, 2 = zramWriteback, 3 = flashSwap, 4 = zswap, 5 = zswap(zbud)
 class AppCommandTest {
     @Test
     fun `workload counts ten through seventeen are recorded directly`() {
@@ -85,6 +85,8 @@ class AppCommandTest {
         assertEquals(2, ArgType.ZRAM_WRITEBACK.code)
         assertEquals(3, ArgType.ONLY_FLASH_SWAP.code)
         assertEquals(4, ArgType.ZSWAP.code)
+        assertEquals(5, ArgType.ZSWAP_ZBUD.code)
+        assertEquals(ArgType.ZSWAP_ZBUD, ArgType.fromCode(5))
     }
 
     @Test
@@ -112,8 +114,10 @@ class AppCommandTest {
         assertFailsWith<IllegalArgumentException> {
             parseArgs(arrayOf("-t", "1", "-a", "6", "-w", "30"))
         }
-        assertFailsWith<IllegalArgumentException> {
-            parseArgs(arrayOf("-t", "4", "-a", "6", "-w", "30"))
+        for (type in listOf("4", "5")) {
+            assertFailsWith<IllegalArgumentException> {
+                parseArgs(arrayOf("-t", type, "-a", "6", "-w", "30"))
+            }
         }
     }
 
@@ -129,29 +133,53 @@ class AppCommandTest {
 
     @Test
     fun `zswap max pool percent comes from -m and defaults to 20`() {
-        assertEquals(
-            DEFAULT_ZSWAP_MAX_POOL_PERCENT,
-            parseArgs(arrayOf("-t", "4", "-a", "10")).zswapMaxPoolPercent,
-        )
+        for ((type, label) in listOf("4" to "zswap", "5" to "zswap(zbud)")) {
+            val defaults = parseArgs(arrayOf("-t", type, "-a", "10"))
+            assertEquals(type.toInt(), defaults.swapType)
+            assertEquals(DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB, defaults.flashSwapDeviceSizeMB)
+            assertEquals(DEFAULT_ZSWAP_MAX_POOL_PERCENT, defaults.zswapMaxPoolPercent)
+            assertTrue(
+                defaults.timestamp.endsWith("_workload10_${label}${DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB}_m$DEFAULT_ZSWAP_MAX_POOL_PERCENT"),
+                defaults.timestamp,
+            )
 
-        val config = parseArgs(arrayOf("-t", "4", "-a", "10", "-f", "2048", "-m", "5"))
-        assertEquals(5, config.zswapMaxPoolPercent)
-        assertTrue(config.timestamp.endsWith("_workload10_zswap2048_m5"), config.timestamp)
+            val config = parseArgs(arrayOf("-t", type, "-a", "10", "-f", "2048", "-m", "5"))
+            assertEquals(5, config.zswapMaxPoolPercent)
+            assertEquals(2048, config.flashSwapDeviceSizeMB)
+            assertTrue(config.timestamp.endsWith("_workload10_${label}2048_m5"), config.timestamp)
+        }
     }
 
     @Test
     fun `max pool percent is rejected outside zswap and outside one to hundred`() {
         assertFailsWith<IllegalArgumentException> { parseArgs(arrayOf("-t", "1", "-a", "6", "-m", "5")) }
         assertFailsWith<IllegalArgumentException> { parseArgs(arrayOf("-t", "2", "-a", "6", "-m", "5")) }
-        assertFailsWith<IllegalArgumentException> { parseArgs(arrayOf("-t", "4", "-a", "6", "-m", "0")) }
-        assertFailsWith<IllegalArgumentException> { parseArgs(arrayOf("-t", "4", "-a", "6", "-m", "101")) }
+        for (type in listOf("4", "5")) {
+            for (percent in listOf("0", "101")) {
+                assertFailsWith<IllegalArgumentException> {
+                    parseArgs(arrayOf("-t", type, "-a", "6", "-m", percent))
+                }
+            }
+        }
     }
 
     @Test
     fun `zswap takes the flash swap size from -f`() {
-        val config = parseArgs(arrayOf("-t", "4", "-a", "10", "-f", "2048"))
-
-        assertEquals(2048, config.flashSwapDeviceSizeMB)
-        assertTrue(config.timestamp.endsWith("_workload10_zswap2048_m$DEFAULT_ZSWAP_MAX_POOL_PERCENT"), config.timestamp)
+        for ((type, label) in listOf("4" to "zswap", "5" to "zswap(zbud)")) {
+            val config = parseArgs(arrayOf("-t", type, "-a", "10", "--flash_size", "2048"))
+            assertEquals(2048, config.flashSwapDeviceSizeMB)
+            assertTrue(config.timestamp.endsWith("_workload10_${label}2048_m$DEFAULT_ZSWAP_MAX_POOL_PERCENT"), config.timestamp)
+            for (size in listOf("0", "-1")) {
+                assertFailsWith<IllegalArgumentException> {
+                    parseArgs(arrayOf("-t", type, "-a", "10", "-f", size))
+                }
+            }
+            for (percent in listOf("1", "100")) {
+                assertEquals(
+                    percent.toInt(),
+                    parseArgs(arrayOf("-t", type, "-a", "10", "--max_pool_percent", percent)).zswapMaxPoolPercent,
+                )
+            }
+        }
     }
 }
