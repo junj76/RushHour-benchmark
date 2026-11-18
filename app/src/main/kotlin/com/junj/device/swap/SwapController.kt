@@ -89,6 +89,17 @@ fun enableZswap() {
 }
 
 fun initSwapByType(type: Int, flashSwapDeviceSizeMb: Int, logger: Logger) {
+    val kernelResult = runAdbRootShellCommand("uname -a")
+    check(kernelResult.exitCode == 0 && kernelResult.output.isNotBlank()) {
+        "无法读取设备内核版本：exit=${kernelResult.exitCode}, output=${kernelResult.output}"
+    }
+    logger.log(
+        LogType.SUMMARY,
+        "kernelVersion=${kernelResult.output.trim()}",
+    )
+
+    //新增 关闭force_swapin_enable
+    //runAdbRootShellCommand("echo 0 > /dev/memcg/memory.force_swapin_enable")
         // 每轮开始：设采样率 → 清零并开启统计
     runAdbRootShellCommand("echo 30 > /sys/kernel/mm/swapin_latency/sample_rate")
     runAdbRootShellCommand("echo 1  > /sys/kernel/mm/swapin_latency/reset")
@@ -96,6 +107,11 @@ fun initSwapByType(type: Int, flashSwapDeviceSizeMb: Int, logger: Logger) {
 
     // 新增: 每轮开始调整cache level 
     runAdbRootShellCommand("echo 'cachelevel=7' > /sys/block/zram0/hyperhold_cache")
+    //runAdbRootShellCommand("echo 'cachelevel=0' > /sys/block/zram0/hyperhold_cache")
+    
+    // 每轮清零 HyperHold 匿名页寿命采样
+    runAdbRootShellCommand("chmod 660 /sys/block/zram0/hyperhold_report")
+    runAdbRootShellCommand("echo reset > /sys/block/zram0/hyperhold_report")
     when (type) {
         ArgType.NO_SWAP.code -> {
             logger.log(LogType.SUMMARY, "=== No Swap ===")

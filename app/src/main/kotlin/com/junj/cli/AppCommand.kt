@@ -8,6 +8,7 @@ import com.github.ajalt.clikt.parameters.options.validate
 import com.github.ajalt.clikt.parameters.types.int
 import com.junj.config.ExperimentConfig
 import com.junj.config.DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB
+import com.junj.config.DEFAULT_EXTENT_SIZE_KB
 import com.junj.domain.app.AppSetType
 import com.junj.output.logging.getTimeStamp
 import java.io.File
@@ -76,11 +77,26 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
         .int()
         .default(0)
 
+    val extentSizeKb: Int by option(
+        "--extent",
+        help = "HyperHold extent size in KB: 4, 8, 32, 128, 512 (default: $DEFAULT_EXTENT_SIZE_KB)",
+    )
+        .int()
+        .default(DEFAULT_EXTENT_SIZE_KB)
+        .validate {
+            require(it in 4..2048 && (it and (it - 1)) == 0) {
+                "extent must be a power-of-two size between 4 and 2048 KB (got $it)"
+            }
+        }
+
     override fun run() = Unit
 }
 
 fun parseArgs(args: Array<String>): ExperimentConfig {
-    val command = AppCommand().also { it.main(args) }
+    val normalizedArgs = args.map {
+        if (it.startsWith("extent=")) "--extent=${it.substringAfter('=')}" else it
+    }.toTypedArray()
+    val command = AppCommand().also { it.main(normalizedArgs) }
     val suffix = buildString {
         when (command.appSetNumber) {
             AppSetType.LIGHT.code -> append("_light")
@@ -93,6 +109,7 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
             2 -> append("_flashSwap")
             3 -> append("_zswap")
         }
+        append("_extent${command.extentSizeKb}k")
         command.logPath?.let { append("_$it") }
     }
     val timestamp = getTimeStamp() + suffix
@@ -104,5 +121,6 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
         timestamp = timestamp,
         outputDirectory = File("../logs/$timestamp"),
         flashSwapDeviceSizeMb = command.flashSwapSizeMb ?: DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB,
+        extentSizeKb = command.extentSizeKb,
     )
 }

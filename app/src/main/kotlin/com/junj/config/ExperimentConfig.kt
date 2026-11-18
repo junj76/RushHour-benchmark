@@ -6,6 +6,7 @@ const val DEFAULT_TEST_ROUND_COUNT = 5
 const val DEFAULT_SAMPLE_INTERVAL_MS = 2_000L
 const val DEFAULT_LAUNCH_INTERVAL_MS = 20_000L
 const val DEFAULT_COLLECT_DELAY_MS = 18_000L
+const val DEFAULT_EXTENT_SIZE_KB = 32
 
 /**
  * flash swap 文件大小（MB）。
@@ -27,4 +28,5 @@ data class ExperimentConfig(
     val launchIntervalMs: Long = DEFAULT_LAUNCH_INTERVAL_MS,
     val collectDelayMs: Long = DEFAULT_COLLECT_DELAY_MS,
     val flashSwapDeviceSizeMb: Int = DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB,
+    val extentSizeKb: Int = DEFAULT_EXTENT_SIZE_KB,
 )

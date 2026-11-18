@@ -44,6 +44,7 @@ fun main(args: Array<String>) = runBlocking {
         LogType.SUMMARY,
         "randomSeed=${config.randomSeed}, appOrder=${apps.joinToString { it.name }}",
     )
+    logger.log(LogType.SUMMARY, "extentSizeKb=${config.extentSizeKb}")
 
     initSwapByType(config.swapType, config.flashSwapDeviceSizeMb, logger)
 
@@ -61,7 +62,7 @@ fun main(args: Array<String>) = runBlocking {
         clock = clock,
     )
     val samplingJob = SamplingJob(
-        collector = MetricsCollector(ProcessAdbExecutor),
+        collector = MetricsCollector(ProcessAdbExecutor, config.extentSizeKb),
         results = results,
         logger = logger,
         intervalMs = config.sampleIntervalMs,
@@ -97,7 +98,7 @@ fun main(args: Array<String>) = runBlocking {
         }
         CommandDiagnostics.printSummary()
         logger.log(LogType.SUMMARY, "Test round runtime: ${elapsedMs / 1_000}s")
-        saveCsv(results, output, config.sampleIntervalMs)
+        saveCsv(results, output, config.sampleIntervalMs, config.extentSizeKb)
         disableStayAwake(ProcessAdbExecutor)
         logger.close()
     }

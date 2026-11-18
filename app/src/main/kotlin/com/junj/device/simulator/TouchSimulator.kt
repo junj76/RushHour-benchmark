@@ -20,9 +20,6 @@ private val APPS_WITHOUT_ACTIONS = arrayOf(
     "dianping", "jd", "meituan", "xiecheng", "qqmusic", "weixin", "jd",
 )
 
-/** 用 adb `input swipe` 直接模拟短视频上滑，不需要 Python。 */
-private val SHORT_VIDEO_APPS = arrayOf("douyin", "kuaishou", "zhihu")
-
 /**
  * 虚拟环境里的 Python 解释器路径，按平台优先：
  *   - Windows venv：`.venv\Scripts\python.exe`
@@ -52,11 +49,6 @@ class TouchSimulator(
     fun simulate(name: String) {
         Thread.sleep(ACTION_WAIT_MS)
         if (name in APPS_WITHOUT_ACTIONS) return
-        if (name in SHORT_VIDEO_APPS) {
-            simulateShortVideoFeed(3, 3_000)
-            return
-        }
-
         val profile = actionsDirectory.resolve("profiles").resolve("$name.json")
         if (!Files.isRegularFile(profile)) {
             println("[app-actions][$name] skipped: no profile found")
@@ -157,8 +149,9 @@ class TouchSimulator(
         require(swipeDurationMs > 0) { "swipeDurationMs must be greater than 0" }
 
         repeat(swipeCount) { index ->
-            val result = adb.rootShell(
-                "input swipe $startX $startY $endX $endY $swipeDurationMs"
+            val result = adb.shell(
+                "/eng/system/xbin/su 2000 " +
+                    "input swipe $startX $startY $endX $endY $swipeDurationMs"
             )
             check(result.exitCode == 0) {
                 "Failed to swipe short-video feed: ${result.output.trim()}"

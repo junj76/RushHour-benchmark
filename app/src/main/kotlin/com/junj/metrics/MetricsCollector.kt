@@ -2,7 +2,10 @@ package com.junj.metrics
 
 import com.junj.device.adb.AdbExecutor
 import com.junj.device.adb.ProcessAdbExecutor
+import com.junj.config.DEFAULT_EXTENT_SIZE_KB
 import com.junj.domain.metrics.SamplingItem
+import com.junj.domain.metrics.SwapinLatencyMetrics
+import com.junj.domain.metrics.CacheMoveMetrics
 import com.junj.metrics.parser.CommandType
 import com.junj.metrics.parser.ResultField
 import com.junj.metrics.parser.parseHyperholdReport
@@ -58,6 +61,7 @@ internal val SAMPLE_SCRIPT: String = listOf(
     "echo \"written_back_pages=\$(cat /sys/kernel/debug/zswap/written_back_pages 2>/dev/null)\"",
     "echo $SAMPLE_MARKER $SECTION_HYPERHOLD",
     "cat /sys/block/zram0/hyperhold_report",
+    "grep -E '^hyperhold_(in|out)_times:' /dev/memcg/memory.psi_health_info 2>/dev/null",
     "echo $SAMPLE_MARKER $SECTION_SWAP_LAT",
     "cat /sys/kernel/mm/swapin_latency/stats",//新路径
     "echo \"swlat_enabled=$(cat /sys/kernel/mm/swapin_latency/enable 2>/dev/null)\"",
@@ -65,9 +69,14 @@ internal val SAMPLE_SCRIPT: String = listOf(
 
 class MetricsCollector(
     private val adb: AdbExecutor = ProcessAdbExecutor,
+    private val extentSizeKb: Int = DEFAULT_EXTENT_SIZE_KB,
 ) {
     fun collect(sampleStamp: Long): SamplingItem =
-        parseSamplingItem(adb.rootShell(SAMPLE_SCRIPT).output, sampleStamp)
+        parseSamplingItem(
+            adb.rootShell(SAMPLE_SCRIPT).output,
+            sampleStamp,
+            extentSizeKb,
+        )
 }
 
 /** 按标记行把整段输出切成 段名 -> 段内容；每段内容与原来单独执行该命令得到的输出一致。 */
@@ -91,7 +100,11 @@ internal fun splitSampleSections(rawOutput: String): Map<String, String> {
     return sections
 }
 
-internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingItem {
+internal fun parseSamplingItem(
+    rawOutput: String,
+    sampleStamp: Long,
+    extentSizeKb: Int = DEFAULT_EXTENT_SIZE_KB,
+): SamplingItem {
     val sections = splitSampleSections(rawOutput)
 
     val vmstatSection = sections[SECTION_VMSTAT].orEmpty()
@@ -136,6 +149,14 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
     val swapinLat = parseSwapinLatencyStats(swapLatSection)
     val swapinLatEnabled = labeledLong(swapLatSection, "swlat_enabled")
 
+    val readInBytes = hyperhold?.readInBytes ?: 0
+    val writeUfsBytes = hyperhold?.writeUfsBytes ?: 0
+    val extentBytes = extentSizeKb.coerceAtLeast(1) * 1024L
+    val readExtentCnt = hyperhold?.ufsReadExtentCnt?.takeIf { it > 0 }
+        ?: if (readInBytes > 0) readInBytes / extentBytes else 0
+    val writeExtentCnt = hyperhold?.ufsWriteExtentCnt?.takeIf { it > 0 }
+        ?: if (writeUfsBytes > 0) writeUfsBytes / extentBytes else 0
+
     return SamplingItem(
         sampleStamp = sampleStamp,
 
@@ -176,6 +197,8 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
         zramComprDataSize = (zramMm?.comprDataSize?.div(1024)) ?: 0,
         zramMemUsedTotal = (zramMm?.memUsedTotal?.div(1024)) ?: 0,
         zramMemUsedMax = (zramMm?.memUsedMax?.div(1024)) ?: 0,
+        // TODO(stats): bd_stat 输出的是 4KB 块数，不是字节。这里除以 1024
+        // 会让后续带宽约小 1024 倍并丢失低位精度；后续应保存原始块数并同步修正 CsvWriter。
         zramBdCount = (zramBd?.bdCount?.div(1024)) ?: 0,
         zramBdReads = (zramBd?.bdReads?.div(1024)) ?: 0,
         zramBdWrites = (zramBd?.bdWrites?.div(1024)) ?: 0,
@@ -187,9 +210,15 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
 
         hhIoReqCnt = hyperhold?.ioReqCnt ?: 0,
         hhIoReqBytes = hyperhold?.ioReqBytes ?: 0,
-        hhReadInBytes = hyperhold?.readInBytes ?: 0,
+        hhUfsReadReqCnt = readExtentCnt,
+        hhUfsWriteReqCnt = writeExtentCnt,
+        hhUfsReadBatchCnt = hyperhold?.ufsReadReqCnt ?: 0,
+        hhUfsWriteBatchCnt = hyperhold?.ufsWriteReqCnt ?: 0,
+        hhUfsReadExtentCnt = readExtentCnt,
+        hhUfsWriteExtentCnt = writeExtentCnt,
+        hhReadInBytes = readInBytes,
         hhWriteRawBytes = hyperhold?.writeRawBytes ?: 0,
-        hhWriteUfsBytes = hyperhold?.writeUfsBytes ?: 0,
+        hhWriteUfsBytes = writeUfsBytes,
         hhFaultoutFaultCnt = hyperhold?.faultoutFaultCnt ?: 0,
         hhPfObjs = hyperhold?.pfObjs ?: 0,
         hhPfHitObjs = hyperhold?.pfHitObjs ?: 0,
@@ -201,6 +230,20 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
         hhMovedInPages = hyperhold?.movedInPages ?: 0,
         hhCachePages = hyperhold?.cachePages ?: 0,
         hhCachePagesPeak = hyperhold?.cachePagesPeak ?: 0,
+        cacheMove = CacheMoveMetrics(
+            extents = hyperhold?.cacheMoveExts ?: 0,
+            validBytes = hyperhold?.cacheMoveValidBytes ?: 0,
+            validBytesMin = hyperhold?.cacheMoveValidBytesMin ?: 0,
+            validBytesMax = hyperhold?.cacheMoveValidBytesMax ?: 0,
+            validBytesAvg = hyperhold?.cacheMoveValidBytesAvg ?: 0,
+            validObjs = hyperhold?.cacheMoveValidObjs ?: 0,
+            validObjsMin = hyperhold?.cacheMoveValidObjsMin ?: 0,
+            validObjsMax = hyperhold?.cacheMoveValidObjsMax ?: 0,
+            validObjsAvgX100 = hyperhold?.cacheMoveValidObjsAvgX100 ?: 0,
+            utilAvgX100 = hyperhold?.cacheMoveUtilAvgX100 ?: 0,
+            utilMinX100 = hyperhold?.cacheMoveUtilMinX100 ?: 0,
+            utilMaxX100 = hyperhold?.cacheMoveUtilMaxX100 ?: 0,
+        ),
 
         hhPfDemandGroups = hyperhold?.pfDemandGroups ?: 0,
         hhPfDemandObjs = hyperhold?.pfDemandObjs ?: 0,
@@ -209,14 +252,67 @@ internal fun parseSamplingItem(rawOutput: String, sampleStamp: Long): SamplingIt
         hhPfDemandHitBytes = hyperhold?.pfDemandHitBytes ?: 0,
         hhPfCachePages = hyperhold?.pfCachePages ?: 0,
         hhPfCachePagesPeak = hyperhold?.pfCachePagesPeak ?: 0,
+        hhZramLifeTotal = hyperhold?.zramLifeTotal ?: 0,
+        hhZramLifeSampled = hyperhold?.zramLifeSampled ?: 0,
+        hhZramLifeRankN = hyperhold?.zramLifeRankN ?: 0,
+        hhZramLifeAvgNs = hyperhold?.zramLifeAvgNs ?: 0,
+        hhZramLifeP10Ns = hyperhold?.zramLifeP10Ns ?: 0,
+        hhZramLifeP20Ns = hyperhold?.zramLifeP20Ns ?: 0,
+        hhZramLifeP30Ns = hyperhold?.zramLifeP30Ns ?: 0,
+        hhZramLifeP40Ns = hyperhold?.zramLifeP40Ns ?: 0,
+        hhZramLifeP50Ns = hyperhold?.zramLifeP50Ns ?: 0,
+        hhZramLifeP60Ns = hyperhold?.zramLifeP60Ns ?: 0,
+        hhZramLifeP70Ns = hyperhold?.zramLifeP70Ns ?: 0,
+        hhZramLifeP80Ns = hyperhold?.zramLifeP80Ns ?: 0,
+        hhZramLifeP90Ns = hyperhold?.zramLifeP90Ns ?: 0,
+        hhZramLifeP99Ns = hyperhold?.zramLifeP99Ns ?: 0,
+        hhZramLifeMaxNs = hyperhold?.zramLifeMaxNs ?: 0,
+        hhZramLifeEndWb = hyperhold?.zramLifeEndWb ?: 0,
+        hhZramLifeEndReadback = hyperhold?.zramLifeEndReadback ?: 0,
+        hhZramLifeEndFree = hyperhold?.zramLifeEndFree ?: 0,
+        hhUfsLifeTotal = hyperhold?.ufsLifeTotal ?: 0,
+        hhUfsLifeSampled = hyperhold?.ufsLifeSampled ?: 0,
+        hhUfsLifeRankN = hyperhold?.ufsLifeRankN ?: 0,
+        hhUfsLifeAvgNs = hyperhold?.ufsLifeAvgNs ?: 0,
+        hhUfsLifeP10Ns = hyperhold?.ufsLifeP10Ns ?: 0,
+        hhUfsLifeP20Ns = hyperhold?.ufsLifeP20Ns ?: 0,
+        hhUfsLifeP30Ns = hyperhold?.ufsLifeP30Ns ?: 0,
+        hhUfsLifeP40Ns = hyperhold?.ufsLifeP40Ns ?: 0,
+        hhUfsLifeP50Ns = hyperhold?.ufsLifeP50Ns ?: 0,
+        hhUfsLifeP60Ns = hyperhold?.ufsLifeP60Ns ?: 0,
+        hhUfsLifeP70Ns = hyperhold?.ufsLifeP70Ns ?: 0,
+        hhUfsLifeP80Ns = hyperhold?.ufsLifeP80Ns ?: 0,
+        hhUfsLifeP90Ns = hyperhold?.ufsLifeP90Ns ?: 0,
+        hhUfsLifeP99Ns = hyperhold?.ufsLifeP99Ns ?: 0,
+        hhUfsLifeMaxNs = hyperhold?.ufsLifeMaxNs ?: 0,
+        hhUfsLifeEndReadback = hyperhold?.ufsLifeEndReadback ?: 0,
+        hhUfsLifeEndFree = hyperhold?.ufsLifeEndFree ?: 0,
 
-        swLatEnabled = swapinLatEnabled,
-        swLatTotal = swapinLat?.total ?: 0,
-        swLatSampled = swapinLat?.sampled ?: 0,
-        swLatAvgNs = swapinLat?.avgNs ?: 0,
-        swLatP90Ns = swapinLat?.p90Ns ?: 0,
-        swLatP99Ns = swapinLat?.p99Ns ?: 0,
-        swLatMaxNs = swapinLat?.maxNs ?: 0,
+        swLatency = SwapinLatencyMetrics(
+            enabled = swapinLatEnabled,
+            total = swapinLat?.total ?: 0,
+            sampled = swapinLat?.sampled ?: 0,
+            avgNs = swapinLat?.avgNs ?: 0,
+            p90Ns = swapinLat?.p90Ns ?: 0,
+            p99Ns = swapinLat?.p99Ns ?: 0,
+            maxNs = swapinLat?.maxNs ?: 0,
+        ),
+        directReclaimTotal = swapinLat?.directReclaimTotal ?: 0,
+        directReclaimFgTotal = swapinLat?.directReclaimFgTotal ?: 0,
+        directReclaimSampled = swapinLat?.directReclaimSampled ?: 0,
+        directReclaimRankN = swapinLat?.directReclaimRankN ?: 0,
+        directReclaimAvgNs = swapinLat?.directReclaimAvgNs ?: 0,
+        directReclaimP10Ns = swapinLat?.directReclaimP10Ns ?: 0,
+        directReclaimP20Ns = swapinLat?.directReclaimP20Ns ?: 0,
+        directReclaimP30Ns = swapinLat?.directReclaimP30Ns ?: 0,
+        directReclaimP40Ns = swapinLat?.directReclaimP40Ns ?: 0,
+        directReclaimP50Ns = swapinLat?.directReclaimP50Ns ?: 0,
+        directReclaimP60Ns = swapinLat?.directReclaimP60Ns ?: 0,
+        directReclaimP70Ns = swapinLat?.directReclaimP70Ns ?: 0,
+        directReclaimP80Ns = swapinLat?.directReclaimP80Ns ?: 0,
+        directReclaimP90Ns = swapinLat?.directReclaimP90Ns ?: 0,
+        directReclaimP99Ns = swapinLat?.directReclaimP99Ns ?: 0,
+        directReclaimMaxNs = swapinLat?.directReclaimMaxNs ?: 0,
     )
 }
 
