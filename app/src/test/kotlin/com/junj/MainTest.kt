@@ -8,6 +8,6 @@ import kotlin.test.assertTrue
 class MainTest {
     @Test
     fun `parse thermal service sections`() {
-
+        println("test Main")
     }
 }

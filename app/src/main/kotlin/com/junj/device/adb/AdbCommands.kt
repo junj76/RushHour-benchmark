@@ -10,11 +10,17 @@ data class CommandResult(
 interface AdbExecutor {
     fun shell(command: String): CommandResult
     fun rootShell(command: String): CommandResult
+
+    /** 探针类命令可以声明"失败是预期结果"（例如查询一个可能不存在的进程）。 */
+    fun rootShell(command: String, expectedFailure: (CommandResult) -> Boolean): CommandResult =
+        rootShell(command)
 }
 
 object ProcessAdbExecutor : AdbExecutor {
     override fun shell(command: String): CommandResult = runAdbShellCommand(command)
     override fun rootShell(command: String): CommandResult = runAdbRootShellCommand(command)
+    override fun rootShell(command: String, expectedFailure: (CommandResult) -> Boolean): CommandResult =
+        runAdbRootShellCommand(command, expectedFailure)
 }
 
 /**
@@ -99,8 +105,13 @@ fun runAdbShellCommand(command: String): CommandResult {
  * 这里不能用 PowerShell 管道（`$env:X | adb.exe ...`）：管道给子进程 stdin 会自动补 CRLF，
  * 设备端 sh 会把 `\r` 当成最后一个参数的一部分（`logcat -c\r` 直接报错）。
  * 所以改用 .NET 的 Process 精确写入“命令 + 单个 LF”。
+ *
+ * @param expectedFailure 探针类命令可以声明"失败是预期结果"，此时不会记入 command.log。
  */
-fun runAdbRootShellCommand(command: String): CommandResult {
+fun runAdbRootShellCommand(
+    command: String,
+    expectedFailure: (CommandResult) -> Boolean = { false },
+): CommandResult {
     val result = runPowerShellScript(
         listOf(
             "\$ErrorActionPreference = 'Stop'",
@@ -118,7 +129,9 @@ fun runAdbRootShellCommand(command: String): CommandResult {
         ).joinToString("\n"),
         mapOf(ROOT_COMMAND_ENV to command),
     )
-    CommandDiagnostics.recordCommandProblem(command, result.exitCode, result.output)
+    if (!expectedFailure(result)) {
+        CommandDiagnostics.recordCommandProblem(command, result.exitCode, result.output)
+    }
     return result
 }
 

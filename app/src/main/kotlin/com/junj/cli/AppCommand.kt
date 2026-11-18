@@ -6,68 +6,74 @@ import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.validate
 import com.github.ajalt.clikt.parameters.types.int
-import com.junj.config.ExperimentConfig
-import com.junj.config.DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB
 import com.junj.config.DEFAULT_EXTENT_SIZE_KB
-import com.junj.domain.app.AppSetType
+import com.junj.config.DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB
+import com.junj.config.DEFAULT_ZRAM_WRITEBACK_INTERVAL_SEC
+import com.junj.config.DEFAULT_ZSWAP_MAX_POOL_PERCENT
+import com.junj.config.ExperimentConfig
+import com.junj.domain.app.globalAppInfos
 import com.junj.output.logging.getTimeStamp
 import java.io.File
 
-enum class ArgType {
-    NO_SWAP,
-    ONLY_ZRAM,
-    ONLY_FLASH_SWAP,
-    ZSWAP;
+enum class ArgType(val code: Int) {
+    NO_SWAP(0),
+    ONLY_ZRAM(1),
 
-    val code: Int
-        get() = ordinal
+    /**
+     * Codes follow the declaration order:
+     * 0 = no swap, 1 = zRAM, 2 = zRAM + writeback, 3 = flash swap, 4 = zSwap, 5 = zSwap (zbud).
+     * Keep this comment, the `-t` help text and the README table in sync when renumbering;
+     * the run directory suffix and every summary.txt rely on these codes.
+     */
+    ZRAM_WRITEBACK(2),
+    ONLY_FLASH_SWAP(3),
+    ZSWAP(4),
+    ZSWAP_ZBUD(5);
+
+    val usesZswap: Boolean get() = this == ZSWAP || this == ZSWAP_ZBUD
+
+    companion object {
+        fun fromCode(code: Int): ArgType? = entries.firstOrNull { it.code == code }
+    }
 }
 
 class AppCommand : CliktCommand(name = "android-app-launch-test") {
+    val rounds: Int by option("--rounds", help = "Number of workload rounds; defaults to 10")
+        .int()
+        .default(com.junj.config.DEFAULT_TEST_ROUND_COUNT)
+        .validate { require(it > 0) { "rounds must be greater than 0" } }
+
     val type: Int by option(
         "-t",
         "--type",
-        help = "Swap type: 0=no swap, 1=zRAM, 2=flash swap, 3=zSwap",
+        help = "Swap type: 0=no swap, 1=zRAM, 2=zRAM + backing device writeback, 3=flash swap, 4=zSwap (zsmalloc), 5=zSwap (zbud)",
     )
         .int()
         .required()
         .validate {
-            require(it in ArgType.NO_SWAP.code..ArgType.ZSWAP.code) {
-                "type must be between ${ArgType.NO_SWAP.code} and ${ArgType.ZSWAP.code}"
+            require(ArgType.fromCode(it) != null) {
+                "type must be one of ${ArgType.entries.map { argType -> argType.code }.sorted().joinToString()}"
             }
         }
 
-    val appSetNumber: Int by option(
+    val appCount: Int by option(
         "-a",
-        "--app-set",
-        help = "app set number: 0=light, 1=mid, 2=heavy"
+        "--apps",
+        help = "Number of workload entries: 1..${globalAppInfos.size}; selects the first N entries"
     )
         .int()
         .required()
         .validate {
-            require(it in AppSetType.LIGHT.code..AppSetType.HEAVY.code) {
-                "app-set must be between ${AppSetType.LIGHT.code} and ${AppSetType.HEAVY.code}"
+            require(it in 1..globalAppInfos.size) {
+                "apps must be between 1 and ${globalAppInfos.size}"
             }
         }
 
     val logPath: String? by option(
         "-p",
-        "--logPath",
+        "--prefix",
         help = "Optional log output path",
     )
-
-    // 注意：短选项 -s 已被 main 的 --seed（随机种子）占用，这里改用 -f。
-    val flashSwapSizeMb: Int? by option(
-        "-f",
-        "--flash-swap-size-mb",
-        help = "flash swap file size in MB (default: $DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB)",
-    )
-        .int()
-        .validate {
-            require(it in 64..16_384) {
-                "flash-swap-size-mb must be between 64 and 16384 (got $it)"
-            }
-        }
 
     val randomSeed: Int by option(
         "-s",
@@ -77,6 +83,32 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
         .int()
         .default(0)
 
+    val flashSize: Int? by option(
+        "-f",
+        "--flash_size",
+        help = "Backing storage size in MB: the flash swap file for -t ${ArgType.ONLY_FLASH_SWAP.code}/" +
+            "${ArgType.ZSWAP.code}/${ArgType.ZSWAP_ZBUD.code}, or the zRAM backing file for -t ${ArgType.ZRAM_WRITEBACK.code}. " +
+            "Optional, defaults to $DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB MB.",
+    )
+        .int()
+
+    val writebackInterval: Int? by option(
+        "-w",
+        "--writeback_interval",
+        help = "zRAM writeback interval in seconds; only used by -t ${ArgType.ZRAM_WRITEBACK.code}. " +
+            "Optional, defaults to $DEFAULT_ZRAM_WRITEBACK_INTERVAL_SEC s.",
+    )
+        .int()
+
+    val zswapMaxPoolPercent: Int? by option(
+        "-m",
+        "--max_pool_percent",
+        help = "zswap max_pool_percent (percent of RAM); only used by -t ${ArgType.ZSWAP.code}/${ArgType.ZSWAP_ZBUD.code}. " +
+            "Optional, defaults to $DEFAULT_ZSWAP_MAX_POOL_PERCENT.",
+    )
+        .int()
+
+    /** HyperHold extent 大小（KB），随 zram hyperhold 配置一起下发；默认 32KB。 */
     val extentSizeKb: Int by option(
         "--extent",
         help = "HyperHold extent size in KB: 4, 8, 32, 128, 512 (default: $DEFAULT_EXTENT_SIZE_KB)",
@@ -93,34 +125,74 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
 }
 
 fun parseArgs(args: Array<String>): ExperimentConfig {
+    // 实验脚本里支持 extent=32 这种环境变量风格写法，统一转成 --extent=32。
     val normalizedArgs = args.map {
         if (it.startsWith("extent=")) "--extent=${it.substringAfter('=')}" else it
     }.toTypedArray()
     val command = AppCommand().also { it.main(normalizedArgs) }
+
+    val flashSize = command.flashSize
+    if (flashSize != null) {
+        require(
+            command.type == ArgType.ONLY_FLASH_SWAP.code ||
+                ArgType.fromCode(command.type)?.usesZswap == true ||
+                command.type == ArgType.ZRAM_WRITEBACK.code
+        ) {
+            "-f/--flash_size is only applicable to the backing-storage types: " +
+                "-t ${ArgType.ONLY_FLASH_SWAP.code} (flash swap), -t ${ArgType.ZSWAP.code}/${ArgType.ZSWAP_ZBUD.code} (zSwap) " +
+                "or -t ${ArgType.ZRAM_WRITEBACK.code} (zRAM + writeback)"
+        }
+        require(flashSize > 0) { "flash_size must be greater than 0, got $flashSize" }
+    }
+    val flashSwapDeviceSizeMB = flashSize ?: DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB
+
+    val writebackInterval = command.writebackInterval
+    if (writebackInterval != null) {
+        require(command.type == ArgType.ZRAM_WRITEBACK.code) {
+            "-w/--writeback_interval is only applicable to -t ${ArgType.ZRAM_WRITEBACK.code} (zRAM + writeback)"
+        }
+        require(writebackInterval > 0) {
+            "writeback_interval must be greater than 0, got $writebackInterval"
+        }
+    }
+    val zramWritebackIntervalSec = writebackInterval ?: DEFAULT_ZRAM_WRITEBACK_INTERVAL_SEC
+
+    val maxPoolPercent = command.zswapMaxPoolPercent
+    if (maxPoolPercent != null) {
+        require(ArgType.fromCode(command.type)?.usesZswap == true) {
+            "-m/--max_pool_percent is only applicable to -t ${ArgType.ZSWAP.code}/${ArgType.ZSWAP_ZBUD.code} (zSwap)"
+        }
+        require(maxPoolPercent in 1..100) {
+            "max_pool_percent must be between 1 and 100, got $maxPoolPercent"
+        }
+    }
+    val zswapMaxPoolPercent = maxPoolPercent ?: DEFAULT_ZSWAP_MAX_POOL_PERCENT
+
     val suffix = buildString {
-        when (command.appSetNumber) {
-            AppSetType.LIGHT.code -> append("_light")
-            AppSetType.MIDDLE.code -> append("_middle")
-            AppSetType.HEAVY.code -> append("_heavy")
+        append("_workload${command.appCount}")
+        when (command.type) {
+            ArgType.NO_SWAP.code -> append("_noSwap")
+            ArgType.ONLY_ZRAM.code -> append("_onlyZram")
+            ArgType.ONLY_FLASH_SWAP.code -> append("_flashSwap$flashSwapDeviceSizeMB")
+            ArgType.ZSWAP.code -> append("_zswap${flashSwapDeviceSizeMB}_m$zswapMaxPoolPercent")
+            ArgType.ZSWAP_ZBUD.code -> append("_zswap(zbud)${flashSwapDeviceSizeMB}_m$zswapMaxPoolPercent")
+            ArgType.ZRAM_WRITEBACK.code ->
+                append("_zramWriteback${flashSwapDeviceSizeMB}_wb${zramWritebackIntervalSec}s")
         }
-        when(command.type) {
-            0 -> append("_noSwap")
-            1 -> append("_onlyZram")
-            2 -> append("_flashSwap")
-            3 -> append("_zswap")
-        }
-        append("_extent${command.extentSizeKb}k")
         command.logPath?.let { append("_$it") }
     }
     val timestamp = getTimeStamp() + suffix
 
     return ExperimentConfig(
         swapType = command.type,
-        appSetNumber = command.appSetNumber,
+        appCount = command.appCount,
         randomSeed = command.randomSeed,
         timestamp = timestamp,
         outputDirectory = File("../logs/$timestamp"),
-        flashSwapDeviceSizeMb = command.flashSwapSizeMb ?: DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB,
+        flashSwapDeviceSizeMB = flashSwapDeviceSizeMB,
+        testRoundCount = command.rounds,
+        zramWritebackIntervalSec = zramWritebackIntervalSec,
+        zswapMaxPoolPercent = zswapMaxPoolPercent,
         extentSizeKb = command.extentSizeKb,
     )
 }

@@ -1,0 +1,7 @@
+{
+    "app": "gtranslate",
+    "package": "com.google.android.apps.translate",
+    "keyword": "Huazhong University of Science and Technology",
+    "input_id": "com.google.android.apps.translate:id/original_text",
+    "result_pattern": ".*(华中科技大学|華中科技大學).*"
+}

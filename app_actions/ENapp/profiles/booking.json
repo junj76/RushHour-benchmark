@@ -1,0 +1,10 @@
+{
+    "app": "booking",
+    "package": "com.booking",
+    "keyword": "武汉",
+    "destination_id": "stays-destination",
+    "date_confirm_id": "com.booking:id/facet_date_picker_confirm",
+    "search_id": "search_box_cta_test_tag",
+    "results_id": "sr_list",
+    "return_settle_seconds": 0.4
+}

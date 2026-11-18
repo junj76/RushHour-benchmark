@@ -1,0 +1,20 @@
+{
+    "app": "spotify",
+    "package": "com.spotify.music",
+    "section_titles": [
+        "排行榜",
+        "Charts",
+        "Top charts"
+    ],
+    "gestures": {
+        "browse": [
+            0.5,
+            0.78,
+            0.5,
+            0.30
+        ],
+        "duration": 0.35,
+        "settle_seconds": 0.35,
+        "open_wait_seconds": 1.0
+    }
+}

@@ -33,6 +33,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
 
     implementation("com.github.ajalt.clikt:clikt:4.4.0")
+
+    // 日志：编译期只依赖 SLF4J API，运行时由 Logback 实现（配置见 src/main/resources/logback.xml）。
+    implementation("org.slf4j:slf4j-api:2.0.20")
+    runtimeOnly("ch.qos.logback:logback-classic:1.6.5")
 }
 
 // Apply a specific Java toolchain to ease working on different environments.

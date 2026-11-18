@@ -1,11 +1,11 @@
 package com.junj.metrics
 
+import com.junj.config.DEFAULT_EXTENT_SIZE_KB
 import com.junj.device.adb.AdbExecutor
 import com.junj.device.adb.ProcessAdbExecutor
-import com.junj.config.DEFAULT_EXTENT_SIZE_KB
+import com.junj.domain.metrics.CacheMoveMetrics
 import com.junj.domain.metrics.SamplingItem
 import com.junj.domain.metrics.SwapinLatencyMetrics
-import com.junj.domain.metrics.CacheMoveMetrics
 import com.junj.metrics.parser.CommandType
 import com.junj.metrics.parser.ResultField
 import com.junj.metrics.parser.parseHyperholdReport
@@ -25,21 +25,22 @@ internal const val SECTION_THERMAL = "THERMAL"
 internal const val SECTION_ZRAM_MM = "ZRAM_MM"
 internal const val SECTION_ZRAM_BD = "ZRAM_BD"
 internal const val SECTION_ZSWAP = "ZSWAP"
+internal const val SECTION_PAGE_SIZE = "PAGE_SIZE"
+internal const val SECTION_FLASH_IO = "FLASH_IO"
 internal const val SECTION_HYPERHOLD = "HYPERHOLD"
 internal const val SECTION_SWAP_LAT = "SWAP_LAT"
 
 /**
  * 一整轮采样只发一次 adb 调用的脚本。
  *
- * runAdbRootShellCommand 是把脚本 pipe 给设备上的 `su -c sh`，sh 会从 stdin 读完整段脚本，
- * 所以多行命令只付一次 bash/adb.exe 进程启动与一次 ADB 往返的代价（原来是 10 次）。
+ * runAdbRootShellCommand 是把脚本 pipe 给设备上的 root sh，sh 会从 stdin 读完整段脚本，
+ * 所以多行命令只付一次 PowerShell/adb.exe 进程启动与一次 ADB 往返的代价。
  * 每段数据前打印一行 [SAMPLE_MARKER] 标记，取回后在宿主端切分，再交给原有解析器。
  *
  * 注意：脚本里不能出现会读取 stdin 的命令（例如无参数的 `cat`），否则会吃掉后面的脚本行。
  *
- * hyperhold 段是 Windows 分支新增的（上游统计内核在 /sys/block/zram0/hyperhold_report 里
- * 追加了 "hyperhold io stat" 段）；没有该节点的设备会在这里打印一行 cat 报错，
- * parseHyperholdReport 返回 null，再由 CommandDiagnostics 留档，不影响其它段。
+ * HYPERHOLD / SWAP_LAT 是本分支（华为内核补丁）新增的段；没有对应节点的设备会打印 cat 报错，
+ * 解析失败后由 CommandDiagnostics 留档，不影响其它段。
  */
 internal val SAMPLE_SCRIPT: String = listOf(
     "echo $SAMPLE_MARKER $SECTION_VMSTAT",
@@ -54,16 +55,24 @@ internal val SAMPLE_SCRIPT: String = listOf(
     "cat /sys/block/zram0/mm_stat",
     "echo $SAMPLE_MARKER $SECTION_ZRAM_BD",
     "cat /sys/block/zram0/bd_stat",
+    "echo $SAMPLE_MARKER $SECTION_PAGE_SIZE",
+    "getconf PAGESIZE",
     "echo $SAMPLE_MARKER $SECTION_ZSWAP",
     "echo \"stored_pages=\$(cat /sys/kernel/debug/zswap/stored_pages 2>/dev/null)\"",
     "echo \"pool_total_size=\$(cat /sys/kernel/debug/zswap/pool_total_size 2>/dev/null)\"",
     "echo \"pool_limit_hit=\$(cat /sys/kernel/debug/zswap/pool_limit_hit 2>/dev/null)\"",
     "echo \"written_back_pages=\$(cat /sys/kernel/debug/zswap/written_back_pages 2>/dev/null)\"",
+    // /proc/vmstat 的累计换入/换出页数：单位无歧义，做差即为本轮读写次数。
+    "echo \"pswpin=\$(awk '/^pswpin/{print \$2}' /proc/vmstat)\"",
+    "echo \"pswpout=\$(awk '/^pswpout/{print \$2}' /proc/vmstat)\"",
+    "echo $SAMPLE_MARKER $SECTION_FLASH_IO",
+    "for d in /sys/block/dm-*; do " +
+        "[ \"\$(cat \$d/dm/name 2>/dev/null)\" = flash_swap ] || continue; cat \$d/stat; break; done",
     "echo $SAMPLE_MARKER $SECTION_HYPERHOLD",
     "cat /sys/block/zram0/hyperhold_report",
     "grep -E '^hyperhold_(in|out)_times:' /dev/memcg/memory.psi_health_info 2>/dev/null",
     "echo $SAMPLE_MARKER $SECTION_SWAP_LAT",
-    "cat /sys/kernel/mm/swapin_latency/stats",//新路径
+    "cat /sys/kernel/mm/swapin_latency/stats",
     "echo \"swlat_enabled=$(cat /sys/kernel/mm/swapin_latency/enable 2>/dev/null)\"",
 ).joinToString("\n")
 
@@ -114,6 +123,11 @@ internal fun parseSamplingItem(
         CommandDiagnostics.record("vmstat/unparsed", "vmstat", vmstatSection)
     }
 
+    // 累计换入/换出页数（/proc/vmstat pswpin/pswpout）。
+    val pswpin = Regex("pswpin=(\\d+)").find(rawOutput)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+    val pswpout = Regex("pswpout=(\\d+)").find(rawOutput)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
+    val pswpSampled = Regex("pswpin=\\d+").containsMatchIn(rawOutput)
+
     val memInfo = sections[SECTION_MEMINFO].orEmpty()
     val pressureMemory = sections[SECTION_PRESSURE].orEmpty()
     val thermal = sections[SECTION_THERMAL].orEmpty()
@@ -134,6 +148,7 @@ internal fun parseSamplingItem(
 
     val zramBd = parseZramBdStatResult(sections[SECTION_ZRAM_BD].orEmpty())
     val zswap = sections[SECTION_ZSWAP].orEmpty()
+    val flash = sections[SECTION_FLASH_IO].orEmpty().trim().split(Regex("\\s+"))
 
     val hyperholdSection = sections[SECTION_HYPERHOLD].orEmpty()
     val hyperhold = parseHyperholdReport(hyperholdSection)
@@ -144,7 +159,7 @@ internal fun parseSamplingItem(
             hyperholdSection,
         )
     }
-    //从分段里取（复用你已有的 labeledLong()）
+
     val swapLatSection = sections[SECTION_SWAP_LAT].orEmpty()
     val swapinLat = parseSwapinLatencyStats(swapLatSection)
     val swapinLatEnabled = labeledLong(swapLatSection, "swlat_enabled")
@@ -176,10 +191,13 @@ internal fun parseSamplingItem(
         vmstatFree = vmstat?.vmstatFree ?: 0L,
         vmstatBuff = vmstat?.vmstatBuff ?: 0L,
         vmstatCache = vmstat?.vmstatCache ?: 0L,
-        vmstatSi = vmstat?.vmstatSi ?: 0L,
-        vmstatSo = vmstat?.vmstatSo ?: 0L,
-        vmstatBi = vmstat?.vmstatBi ?: 0L,
-        vmstatBo = vmstat?.vmstatBo ?: 0L,
+        vmstatSi = (vmstat?.vmstatSi ?: 0L) / 1024.0,
+        vmstatSo = (vmstat?.vmstatSo ?: 0L) / 1024.0,
+        vmstatBi = (vmstat?.vmstatBi ?: 0L) / 1024.0,
+        vmstatBo = (vmstat?.vmstatBo ?: 0L) / 1024.0,
+        vmstatPswpin = pswpin,
+        vmstatPswpout = pswpout,
+        vmstatPswpSampled = pswpSampled,
         vmstatIn = vmstat?.vmstatIn ?: 0L,
         vmstatCs = vmstat?.vmstatCs ?: 0L,
         vmstatUs = vmstat?.vmstatUs ?: 0,
@@ -197,16 +215,21 @@ internal fun parseSamplingItem(
         zramComprDataSize = (zramMm?.comprDataSize?.div(1024)) ?: 0,
         zramMemUsedTotal = (zramMm?.memUsedTotal?.div(1024)) ?: 0,
         zramMemUsedMax = (zramMm?.memUsedMax?.div(1024)) ?: 0,
-        // TODO(stats): bd_stat 输出的是 4KB 块数，不是字节。这里除以 1024
-        // 会让后续带宽约小 1024 倍并丢失低位精度；后续应保存原始块数并同步修正 CsvWriter。
-        zramBdCount = (zramBd?.bdCount?.div(1024)) ?: 0,
-        zramBdReads = (zramBd?.bdReads?.div(1024)) ?: 0,
-        zramBdWrites = (zramBd?.bdWrites?.div(1024)) ?: 0,
+        // bd_stat 的单位是 4 KB 块；×4 后统一存成 KB。
+        zramBdCount = (zramBd?.bdCount?.times(4)) ?: 0L,
+        zramBdReads = (zramBd?.bdReads?.times(4)) ?: 0L,
+        zramBdWrites = (zramBd?.bdWrites?.times(4)) ?: 0L,
 
         zswapStoredPages = labeledLong(zswap, "stored_pages"),
-        zswapPoolTotalSize = labeledLong(zswap, "pool_total_size"),
+        zswapPoolTotalSize = labeledLong(zswap, "pool_total_size") / 1024L,
         zswapPoolLimitHit = labeledLong(zswap, "pool_limit_hit"),
         zswapWrittenBackPages = labeledLong(zswap, "written_back_pages"),
+
+        // dm stat 第 3、7 项是 512 字节扇区数；除以 2 得到 KB。
+        flashDeviceReadKb = flash.getOrNull(2)?.toLongOrNull()?.div(2.0),
+        flashDeviceWriteKb = flash.getOrNull(6)?.toLongOrNull()?.div(2.0),
+        pageSizeKb = sections[SECTION_PAGE_SIZE]?.trim()?.toLongOrNull()
+            ?.takeIf { it >= 1024L && it % 1024L == 0L }?.div(1024L) ?: 4L,
 
         hhIoReqCnt = hyperhold?.ioReqCnt ?: 0,
         hhIoReqBytes = hyperhold?.ioReqBytes ?: 0,

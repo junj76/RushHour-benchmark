@@ -1,0 +1,7 @@
+{
+    "app": "foodpanda",
+    "package": "com.global.foodpanda.android",
+    "manual_label": "Enter address manually",
+    "confirm_label": "Confirm",
+    "return_settle_seconds": 0.6
+}

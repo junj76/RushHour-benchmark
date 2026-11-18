@@ -1,0 +1,38 @@
+{
+    "app": "gmail",
+    "package": "com.google.android.gm",
+    "selectors": {
+        "home": [
+            {
+                "resourceId": "com.google.android.gm:id/thread_list_view"
+            },
+            {
+                "resourceId": "com.google.android.gm:id/conversation_list_view"
+            },
+            {
+                "text": "撰写"
+            },
+            {
+                "text": "Compose"
+            }
+        ],
+        "mail": [
+            {
+                "resourceId": "com.google.android.gm:id/subject_and_folder_view"
+            },
+            {
+                "className": "android.webkit.WebView"
+            }
+        ]
+    },
+    "gestures": {
+        "read_swipe": [
+            0.5,
+            0.75,
+            0.5,
+            0.35
+        ],
+        "duration": 0.3,
+        "settle_seconds": 0.3
+    }
+}

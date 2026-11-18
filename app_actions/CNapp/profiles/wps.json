@@ -1,0 +1,117 @@
+{
+    "app": "wps",
+    "package": "cn.wps.moffice_eng",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {
+                "text": "首页"
+            },
+            {
+                "text": "文档"
+            },
+            {
+                "text": "最近"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_templates",
+            "action": "click",
+            "selectors": [
+                {
+                    "text": "\u627e\u6a21\u677f"
+                },
+                {
+                    "textContains": "\u6a21\u677f"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "text": "\u63a8\u8350"
+                    },
+                    {
+                        "text": "AI\u6a21\u677f"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "scroll_templates",
+            "action": "swipe_up",
+            "duration": 0.25,
+            "expect": [
+                [
+                    {
+                        "text": "\u63a8\u8350"
+                    },
+                    {
+                        "text": "AI\u6a21\u677f"
+                    },
+                    {
+                        "textContains": "\u66f4\u591a"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "open_first_template",
+            "action": "tap_ratio",
+            "x_ratio": 0.5,
+            "y_ratio": 0.72,
+            "skip_post_check": true
+        },
+        {
+            "name": "return_to_templates",
+            "action": "back",
+            "expect": [
+                [
+                    {
+                        "text": "\u63a8\u8350"
+                    },
+                    {
+                        "text": "AI\u6a21\u677f"
+                    }
+                ],
+                [
+                    {
+                        "text": "\u627e\u6a21\u677f"
+                    },
+                    {
+                        "textContains": "\u6a21\u677f"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "click",
+            "native_click": true,
+            "selectors": [
+                {
+                    "resourceId": "cn.wps.moffice_eng:id/phone_home_toolbar_item_text",
+                    "text": "\u9996\u9875"
+                }
+            ],
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "text": "\u6700\u8fd1"
+                    },
+                    {
+                        "text": "\u6587\u6863"
+                    }
+                ]
+            ]
+        }
+    ]
+}

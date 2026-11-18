@@ -24,17 +24,17 @@ class TouchSimulatorTest {
 
         assertEquals(
             listOf(
-                "input swipe 100 1000 100 200 350",
-                "input swipe 100 1000 100 200 350",
-                "input swipe 100 1000 100 200 350",
+                "/eng/system/xbin/su 2000 input swipe 100 1000 100 200 350",
+                "/eng/system/xbin/su 2000 input swipe 100 1000 100 200 350",
+                "/eng/system/xbin/su 2000 input swipe 100 1000 100 200 350",
             ),
-            adb.rootCommands,
+            adb.shellCommands,
         )
     }
 
     @Test
     fun `app action command uses venv python and unified runner options`() {
-        val actionsDirectory = Paths.get("/tmp/app_actions")
+        val actionsDirectory = Paths.get("/tmp/app_actions/ENapp")
         val simulator = TouchSimulator(RecordingAdb(), actionsDirectory)
         val expectedPython = simulator.venvPythonPath().toString()
 
@@ -59,13 +59,13 @@ class TouchSimulatorTest {
     }
 
     private class RecordingAdb : AdbExecutor {
-        val rootCommands = mutableListOf<String>()
+        val shellCommands = mutableListOf<String>()
 
-        override fun shell(command: String): CommandResult = CommandResult(0, "")
-
-        override fun rootShell(command: String): CommandResult {
-            rootCommands += command
+        override fun shell(command: String): CommandResult {
+            shellCommands += command
             return CommandResult(0, "")
         }
+
+        override fun rootShell(command: String): CommandResult = CommandResult(0, "")
     }
 }

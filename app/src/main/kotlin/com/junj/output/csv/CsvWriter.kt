@@ -1,5 +1,8 @@
 package com.junj.output.csv
 
+import com.junj.config.DEFAULT_EXTENT_SIZE_KB
+import com.junj.domain.metrics.flashKbDelta
+
 import com.junj.domain.ExperimentResults
 import com.junj.domain.launch.LaunchApplicationItem
 import com.junj.domain.metrics.SamplingItem
@@ -11,7 +14,7 @@ fun saveCsv(
     results: ExperimentResults,
     output: ExperimentOutputPaths,
     sampleIntervalMs: Long,
-    extentSizeKb: Int,
+    extentSizeKb: Int = DEFAULT_EXTENT_SIZE_KB,
 ) {
     saveLaunchResultsToCsv(
         results.launches,
@@ -132,23 +135,23 @@ fun saveSampleResultsToCsv(
     results: List<SamplingItem>,
     outputFile: File,
     sampleIntervalMs: Long,
-    extentSizeKb: Int,
+    extentSizeKb: Int = DEFAULT_EXTENT_SIZE_KB,
 ) {
+    require(sampleIntervalMs > 0) { "sampleIntervalMs must be positive" }
     outputFile.parentFile?.mkdirs()
 
     outputFile.bufferedWriter(Charsets.UTF_8).use { writer ->
         writer.appendLine(
             listOf(
                 "sampleStamp(ms)",
-                "extentSizeKb",
                 "memTotal(KB)",
                 "memFree(KB)",
                 "memAvailable(KB)",
                 "swapTotal(KB)",
                 "swapFree(KB)",
                 "swapCached(KB)",
-                "psiSome(ms)",
-                "psiFull(ms)",
+                "psiSome(us)",
+                "psiFull(us)",
                 "vmstatR/runnableProcesses",
                 "vmstatB/blockedProcesses",
                 "vmstatSwpd/swapUsed(KB)",
@@ -157,8 +160,8 @@ fun saveSampleResultsToCsv(
                 "vmstatCache/cacheMemory(KB)",
                 "vmstatSi/swapInBw(KB/s)",
                 "vmstatSo/swapOutBw(KB/s)",
-                "vmstatBi/blockInput(KB/s)",
-                "vmstatBo/blockOutput(KB/s)",
+                "vmstatBi/blockInput(blocks/s)",
+                "vmstatBo/blockOutput(blocks/s)",
                 "vmstatIn/Interrupts(time/s)",
                 "vmstatCs/contextSwitches(time/s)",
                 "vmstatUs/userCpuTime(%)",
@@ -174,14 +177,21 @@ fun saveSampleResultsToCsv(
                 "zramComprDataSize(KB)",
                 "zramMemUsedTotal(KB)",
                 "zramMemUsedMax(KB)",
-                "zramBdCount",
-                "zramBdReads",
-                "zramBdWrites",
-                "zramBdReadBw(KB/s)",
-                "zramBdWriteBw(KB/s)",
+                "zramBdCount(KB)",
+                "zramBdReads(KB)",
+                "zramBdWrites(KB)",
+                "zramBdReadBw(MB/s)",
+                "zramBdWriteBw(MB/s)",
+                "zswapStoredPages",
+                "zswapStoredSize(KB)",
+                "zswapPoolTotalSize(KB)",
                 "zswapPoolLimitHit",
                 "zswapWrittenBackPages",
-                "zswapWriteBw(KB/s)",
+                "zswapWrittenBackSize(KB)",
+                "zswapWriteBw(MB/s)",
+                "flashDeviceRead(KB/interval)",
+                "flashDeviceWrite(KB/interval)",
+                "extentSizeKb",
                 "hhIoReqCnt",
                 "hhIoReqBytes",
                 "hhUfsReadReqCnt",
@@ -262,8 +272,6 @@ fun saveSampleResultsToCsv(
                 "hhCacheMoveUtilAvgX100",
                 "hhCacheMoveUtilMinX100",
                 "hhCacheMoveUtilMaxX100",
-                "hhReadBw(KB/s)",
-                "hhWriteBw(KB/s)",
                 "swLatEnabled",
                 "swLatTotal",
                 "swLatSampled",
@@ -287,14 +295,17 @@ fun saveSampleResultsToCsv(
                 "directReclaimP90Ns",
                 "directReclaimP99Ns",
                 "directReclaimMaxNs",
+                "hhReadBw(MB/s)",
+                "hhWriteBw(MB/s)",
             ).joinToString(",")
         )
 
         results.forEachIndexed { index, item ->
+            val previous = results.getOrNull(index - 1)
+            val elapsedMs = previous?.let { item.sampleStamp - it.sampleStamp } ?: 0L
             writer.appendLine(
                 listOf(
                     item.sampleStamp,
-                    extentSizeKb,
                     item.meminfoMemTotal,
                     item.meminfoMemFree,
                     item.meminfoMemAvailable,
@@ -331,14 +342,21 @@ fun saveSampleResultsToCsv(
                     item.zramBdCount,
                     item.zramBdReads,
                     item.zramBdWrites,
-                    // TODO(stats): 按原始 4KB 块数计算才正确；当前采集值已除以 1024，
-                    // 因此带宽约小 1024 倍。修复时同时处理首行没有真实基线的带宽。
-                    if (index == 0) item.zramBdReads * 4 * 1024 / sampleIntervalMs else (item.zramBdReads - results[index - 1].zramBdReads) * 4 * 1024 / sampleIntervalMs,
-                    if (index == 0) item.zramBdWrites * 4 * 1024 / sampleIntervalMs else (item.zramBdWrites - results[index - 1].zramBdWrites) * 4 * 1024 / sampleIntervalMs,
+                    counterRateMbPerSecond(item.zramBdReads, previous?.zramBdReads, elapsedMs, 1L),
+                    counterRateMbPerSecond(item.zramBdWrites, previous?.zramBdWrites, elapsedMs, 1L),
+                    item.zswapStoredPages,
+                    item.zswapStoredSizeKb,
+                    item.zswapPoolTotalSize,
                     item.zswapPoolLimitHit,
                     item.zswapWrittenBackPages,
-                    if (index == 0) (item.zswapPoolLimitHit + item.zswapWrittenBackPages) * 4 * 1024 / sampleIntervalMs
-                    else (item.zswapPoolLimitHit + item.zswapWrittenBackPages - results[index - 1].zswapPoolLimitHit - results[index - 1].zswapWrittenBackPages) * 4 * 1024 / sampleIntervalMs,
+                    item.zswapWrittenBackSizeKb,
+                    // 池满拒绝计数不能算进写回吞吐。首样本无运行前基线，速率记 0。
+                    if (previous != null && item.pageSizeKb == previous.pageSizeKb) {
+                        counterRateMbPerSecond(item.zswapWrittenBackPages, previous.zswapWrittenBackPages, elapsedMs, item.pageSizeKb)
+                    } else 0.0,
+                    flashKbDelta(item.flashDeviceReadKb, previous?.flashDeviceReadKb),
+                    flashKbDelta(item.flashDeviceWriteKb, previous?.flashDeviceWriteKb),
+                    extentSizeKb,
                     item.hhIoReqCnt,
                     item.hhIoReqBytes,
                     item.hhUfsReadReqCnt,
@@ -357,17 +375,13 @@ fun saveSampleResultsToCsv(
                     item.hhPfHitObjs,
                     item.hhPfNeverUsedObjs,
                     item.hhPfNeverUsedBytes,
-                    if (item.hhPfHitObjs + item.hhPfNeverUsedObjs > 0)
-                        item.hhPfHitObjs * 100 / (item.hhPfHitObjs + item.hhPfNeverUsedObjs) else 0,
-                    
+                    if (item.hhPfHitObjs + item.hhPfNeverUsedObjs > 0) item.hhPfHitObjs * 100 / (item.hhPfHitObjs + item.hhPfNeverUsedObjs) else 0,
                     item.hhPfDemandGroups,
                     item.hhPfDemandObjs,
                     item.hhPfDemandHitObjs,
                     item.hhPfDemandNeverObjs,
                     item.hhPfDemandHitBytes,
-                    if (item.hhPfObjs > 0)
-                        item.hhPfHitObjs * 100 / item.hhPfObjs
-                    else 0,
+                    if (item.hhPfObjs > 0) item.hhPfHitObjs * 100 / item.hhPfObjs else 0,
                     item.hhPfCachePages,
                     item.hhPfCachePagesPeak,
                     item.hhZramLifeTotal,
@@ -423,10 +437,6 @@ fun saveSampleResultsToCsv(
                     item.cacheMove.utilAvgX100,
                     item.cacheMove.utilMinX100,
                     item.cacheMove.utilMaxX100,
-                    if (index == 0) item.hhReadInBytes / sampleIntervalMs
-                    else (item.hhReadInBytes - results[index - 1].hhReadInBytes) / sampleIntervalMs,
-                    if (index == 0) item.hhWriteUfsBytes / sampleIntervalMs
-                    else (item.hhWriteUfsBytes - results[index - 1].hhWriteUfsBytes) / sampleIntervalMs,
                     item.swLatency.enabled,
                     item.swLatency.total,
                     item.swLatency.sampled,
@@ -450,10 +460,26 @@ fun saveSampleResultsToCsv(
                     item.directReclaimP90Ns,
                     item.directReclaimP99Ns,
                     item.directReclaimMaxNs,
+                    byteRateMbPerSecond(item.hhReadInBytes, previous?.hhReadInBytes, elapsedMs),
+                    byteRateMbPerSecond(item.hhWriteUfsBytes, previous?.hhWriteUfsBytes, elapsedMs),
                 ).joinToString(",") { value->
                     escapeCsv(value.toString())
                 }
             )
         }
     }
+}
+
+/** 累计计数 -> MB/s；使用实际采样时间，计数 reset/时间倒退时不产生负带宽。
+ * MB 按 1024 KB 换算；浮点计算保留低于 1 MB/s 的流量，避免整数截断。
+ */
+internal fun counterRateMbPerSecond(current: Long, previous: Long?, elapsedMs: Long, kbPerUnit: Long): Double {
+    if (previous == null || elapsedMs <= 0L || current < previous) return 0.0
+    return (current - previous).toDouble() * kbPerUnit * 1000.0 / elapsedMs / 1024.0
+}
+
+/** 累计字节数 -> MB/s；使用实际采样时间，计数 reset/时间倒退时不产生负带宽。 */
+internal fun byteRateMbPerSecond(current: Long, previous: Long?, elapsedMs: Long): Double {
+    if (previous == null || elapsedMs <= 0L || current < previous) return 0.0
+    return (current - previous).toDouble() * 1000.0 / elapsedMs / (1024.0 * 1024.0)
 }

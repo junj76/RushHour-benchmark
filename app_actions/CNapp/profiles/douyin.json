@@ -1,0 +1,76 @@
+{
+    "app": "douyin",
+    "package": "com.ss.android.ugc.aweme",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "native_window_size": true,
+    "home_native": true,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {
+                "resourceId": "com.ss.android.ugc.aweme:id/viewpager"
+            }
+        ],
+        [
+            {
+                "text": "\u9996\u9875",
+                "descriptionContains": "\u9996\u9875",
+                "className": "android.widget.TextView"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "swipe_video_1",
+            "action": "swipe_up",
+            "duration": 0.2,
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.ss.android.ugc.aweme:id/viewpager"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "swipe_video_2",
+            "action": "swipe_up",
+            "duration": 0.2,
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.ss.android.ugc.aweme:id/viewpager"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "expect",
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.ss.android.ugc.aweme:id/viewpager"
+                    }
+                ],
+                [
+                    {
+                        "text": "\u9996\u9875",
+                        "descriptionContains": "\u9996\u9875",
+                        "className": "android.widget.TextView"
+                    }
+                ]
+            ]
+        }
+    ]
+}

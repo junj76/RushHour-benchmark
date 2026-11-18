@@ -2,7 +2,6 @@ package com.junj.experiment
 
 import com.junj.config.ExperimentConfig
 import com.junj.device.adb.AdbExecutor
-import com.junj.device.lifecycle.wakeAndUnlockDevice
 import com.junj.device.pid.getApplicationPid
 import com.junj.device.pid.isApplicationProcessAlive
 import com.junj.device.pid.waitForApplicationPid
@@ -22,7 +21,6 @@ import java.lang.Thread.sleep
 
 class ExperimentRunner(
     private val adb: AdbExecutor,
-    private val apps: List<ApplicationInfo>,
     private val results: ExperimentResults,
     private val logger: Logger,
     private val config: ExperimentConfig,
@@ -34,26 +32,30 @@ class ExperimentRunner(
         val launchedPid: Long?,
     )
 
-    fun runTestRound(round: Int) {
+    fun runTestRound(round: Int, apps: List<ApplicationInfo>) {
         val touchSimulator = TouchSimulator(adb)
         val launchedProcesses = ArrayList<LaunchedAppProcess>()
         for ((index, app) in apps.withIndex()) {
-            // 息屏后 am start -W 的测量与 app_actions 的 UI 动作都会失效，所以每次启动前先唤醒并解锁
-            wakeAndUnlockDevice(adb)
             val launchStartNs = System.nanoTime()
             val launchStamp = clock.elapsedMs()
             val nextLaunchNs = launchStartNs + config.launchIntervalMs * 1_000_000L
             adb.rootShell("dumpsys gfxinfo ${app.packageName} reset")
-            val amStartResult = adb.shell("am start -W -n ${app.componentName}")
+            val component = app.componentName.ifBlank {
+                adb.shell("cmd package resolve-activity --brief -a android.intent.action.MAIN " +
+                    "-c android.intent.category.LAUNCHER ${app.packageName}").output
+                    .lineSequence().map { it.trim() }.firstOrNull { it.startsWith("${app.packageName}/") }
+                    ?: error("No launcher activity for ${app.name} (${app.packageName}); check installation")
+            }
+            val amStartResult = adb.shell(buildAppLaunchCommand(component))
             if (regexFindField(CommandType.AM_START, ResultField.LAUNCH_STATE, amStartResult.output) == null) {
                 // 没回 LaunchState 基本就是应用没装、或组件名和这台机器对不上，把原始输出留档。
                 CommandDiagnostics.record(
                     "am-start/no-launch-state",
-                    "am start -W -n ${app.componentName}",
+                    buildAppLaunchCommand(component),
                     amStartResult.output,
                 )
             }
-            val launchedPid = waitForApplicationPid(adb, app.packageName)
+            val launchedPid = waitForApplicationPid(adb, app.processName)
             touchSimulator.simulate(app.name)
             sleepUntil(launchStartNs + config.collectDelayMs * 1_000_000L)
             val gfxinfo = adb.shell("dumpsys gfxinfo ${app.packageName}")
@@ -85,10 +87,10 @@ class ExperimentRunner(
         }
 
         val roundSurvivals = launchedProcesses.map { launched ->
-            val pidAtRoundEnd = getApplicationPid(adb, launched.app.packageName)
+            val pidAtRoundEnd = getApplicationPid(adb, launched.app.processName)
             val originalProcessAlive = isApplicationProcessAlive(
                 adb = adb,
-                packageName = launched.app.packageName,
+                processName = launched.app.processName,
                 pid = launched.launchedPid,
             )
 
@@ -127,4 +129,10 @@ class ExperimentRunner(
             sleep(remainingNs / 1_000_000L, (remainingNs % 1_000_000L).toInt())
         }
     }
+}
+
+internal fun buildAppLaunchCommand(component: String): String {
+    fun quote(value: String) = "'" + value.replace("'", "'\\''") + "'"
+    // 分别保护手机 Shell 的组件参数和电脑 Bash 的整条命令，保留 $ 等字符。
+    return quote("am start -W -n ${quote(component)}")
 }

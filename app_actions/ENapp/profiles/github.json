@@ -1,0 +1,47 @@
+{
+    "app": "github",
+    "package": "com.github.android",
+    "keyword": "openai",
+    "selectors": {
+        "search_button": [
+            {
+                "descriptionMatches": "(?i)(Search|搜索)"
+            },
+            {
+                "textMatches": "(?i)(Search|搜索)"
+            }
+        ],
+        "search_input": [
+            {
+                "className": "android.widget.EditText"
+            }
+        ],
+        "home_marker": [
+            {
+                "textMatches": "(?i)(Home|主页)"
+            },
+            {
+                "descriptionMatches": "(?i)(Home|主页)"
+            }
+        ],
+        "result_marker": [
+            {
+                "textMatches": "(?i)(Repositories|仓库|Users|用户|Issues|议题)"
+            },
+            {
+                "descriptionMatches": "(?i)(Repositories|仓库|Users|用户|Issues|议题)"
+            }
+        ]
+    },
+    "gestures": {
+        "return": [
+            0.005,
+            0.5,
+            0.7,
+            0.5
+        ],
+        "duration": 0.35,
+        "settle_seconds": 0.5,
+        "results_wait": 1.0
+    }
+}

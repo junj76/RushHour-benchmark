@@ -1,0 +1,16 @@
+{
+    "app": "chatgpt",
+    "package": "com.openai.chatgpt",
+    "prompt": "为我简要介绍华中科技大学",
+    "send_pattern": "(?i)^(发送|发送消息|发送提示|Send|Send message|Send prompt)$",
+    "gestures": {
+        "read_swipe": [
+            0.5,
+            0.88,
+            0.5,
+            0.15
+        ],
+        "swipe_duration": 0.15,
+        "response_wait": 3.0
+    }
+}

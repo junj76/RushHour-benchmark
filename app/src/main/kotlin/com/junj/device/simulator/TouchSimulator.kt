@@ -17,8 +17,11 @@ private const val PYTHON_OVERRIDE_ENV = "BENCH_PYTHON"
 
 /** 有 profile 也不需要跑 Python 动作的 App（触控动作对它们没有意义）。 */
 private val APPS_WITHOUT_ACTIONS = arrayOf(
-    "dianping", "jd", "meituan", "xiecheng", "qqmusic", "weixin", "jd",
+    "dianping", "jd", "meituan", "xiecheng", "qqmusic", "wechat", "jd",
 )
+
+/** 用 adb `input swipe` 直接模拟短视频上滑，不需要 Python。 */
+private val SHORT_VIDEO_APPS = arrayOf("douyin", "kuaishou", "zhihu")
 
 /**
  * 虚拟环境里的 Python 解释器路径，按平台优先：
@@ -34,21 +37,25 @@ private val VENV_PYTHON_CANDIDATES = listOf(
 private val IS_WINDOWS: Boolean =
     System.getProperty("os.name").orEmpty().startsWith("Windows", ignoreCase = true)
 
+/**
+ * 执行 app_actions/ENapp 下的 Python UI 剧本。
+ *
+ * 上游用 `bash wsl_run_app.sh` 启动，这在原生 Windows 上不可用；这里改为直接调用虚拟环境里的
+ * Python（Windows: `.venv\Scripts\python.exe`，WSL/Linux: `.venv/bin/python3`），
+ * 找不到解释器时只跳过该 App 并打印提示，不中断整轮 benchmark。
+ */
 class TouchSimulator(
     private val adb: AdbExecutor,
     private val actionsDirectory: Path = locateActionsDirectory(),
 ) {
-    /**
-     * Runs the configured Python UI scenario for [name].
-     *
-     * Python stdout and stderr are inherited by the benchmark process and are
-     * therefore shown directly in the terminal. Apps without a profile, or runs
-     * without a usable Python interpreter, are skipped so that an unsupported
-     * app (or a missing virtual environment) does not stop the benchmark.
-     */
     fun simulate(name: String) {
         Thread.sleep(ACTION_WAIT_MS)
         if (name in APPS_WITHOUT_ACTIONS) return
+        if (name in SHORT_VIDEO_APPS) {
+            simulateShortVideoFeed(3, 3_000)
+            return
+        }
+
         val profile = actionsDirectory.resolve("profiles").resolve("$name.json")
         if (!Files.isRegularFile(profile)) {
             println("[app-actions][$name] skipped: no profile found")
@@ -75,7 +82,6 @@ class TouchSimulator(
                 }
                 .start()
         } catch (e: Exception) {
-            // 找不到解释器或启动失败时只跳过这个 App，不要中断整轮 benchmark。
             println("[app-actions][$name] skipped: cannot start ${interpreter}. ${e.message}")
             println(
                 "[app-actions] 提示：在 app_actions 下创建虚拟环境并安装依赖 —— " +
@@ -98,10 +104,8 @@ class TouchSimulator(
     /**
      * 解析要用的 Python 解释器：
      *   1. 环境变量 [PYTHON_OVERRIDE_ENV] 指定的路径；
-     *   2. 虚拟环境 `app_actions/.venv` 里的解释器（按平台优先 Windows/WSL 布局）；
+     *   2. 虚拟环境 `.venv` 里的解释器（先 ENapp/.venv，再 app_actions/.venv 与仓库根 .venv）；
      *   3. 退回 PATH 上的 `python.exe`（Windows）或 `python3`（其它平台）。
-     *
-     * 返回值可能是「绝对路径」或「命令名」，交给 ProcessBuilder 解析。
      */
     internal fun resolvePythonInterpreter(): String =
         System.getenv(PYTHON_OVERRIDE_ENV)?.takeIf { it.isNotBlank() }
@@ -110,8 +114,8 @@ class TouchSimulator(
 
     /** 按平台顺序在 .venv 里找解释器，找不到返回 null。 */
     internal fun locateVenvInterpreter(): Path? {
-        // 允许两种放法：app_actions/.venv（README 的布局）和仓库根目录下的 .venv。
-        val roots = listOfNotNull(actionsDirectory, actionsDirectory.parent)
+        // 兼容 ENapp/.venv、app_actions/.venv 和仓库根目录 .venv 三种放法。
+        val roots = listOfNotNull(actionsDirectory, actionsDirectory.parent, actionsDirectory.parent?.parent)
         return roots
             .flatMap { root -> VENV_PYTHON_CANDIDATES.map { root.resolve(it) } }
             .firstOrNull { Files.isRegularFile(it) }
@@ -166,8 +170,8 @@ class TouchSimulator(
     companion object {
         private fun locateActionsDirectory(): Path {
             val candidates = listOf(
-                Paths.get("app_actions"),
-                Paths.get("../app_actions"),
+                Paths.get("app_actions/ENapp"),
+                Paths.get("../app_actions/ENapp"),
             )
             return candidates
                 .map { it.toAbsolutePath().normalize() }

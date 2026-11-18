@@ -1,0 +1,8 @@
+{
+    "app": "pinterest",
+    "package": "com.pinterest",
+    "first_view_seconds": 2.0,
+    "card_min_area_ratio": 0.08,
+    "card_center_y_max_ratio": 0.48,
+    "back_settle_seconds": 0.3
+}

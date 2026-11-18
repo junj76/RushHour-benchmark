@@ -1,0 +1,21 @@
+{
+    "app": "reddit",
+    "package": "com.reddit.frontpage",
+    "keyword": "apple",
+    "search_pattern": "(?i).*(搜索\\s*Reddit|Search\\s*Reddit).*",
+    "gestures": {
+        "open_result": [
+            0.5,
+            0.45
+        ],
+        "read_swipe": [
+            0.5,
+            0.75,
+            0.5,
+            0.4
+        ],
+        "swipe_duration": 0.8,
+        "read_pause": 0.6,
+        "results_settle": 1.2
+    }
+}

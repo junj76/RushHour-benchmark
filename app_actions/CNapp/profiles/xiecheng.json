@@ -1,0 +1,120 @@
+{
+    "app": "xiecheng",
+    "package": "ctrip.android.view",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "success_evidence": "screenshot",
+    "home_native": true,
+    "native_window_size": true,
+    "return_reserve_seconds": 3.5,
+    "home": [
+        [
+            {
+                "text": "\u9996\u9875"
+            },
+            {
+                "text": "\u6211\u7684"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_search",
+            "action": "click",
+            "native_click": false,
+            "selectors": [
+                {
+                    "className": "android.widget.FrameLayout",
+                    "clickable": true,
+                    "alignedWith": {
+                        "text": "\u65c5\u6e38\u5730\u56fe"
+                    },
+                    "maxYRatio": 0.45
+                }
+            ],
+            "native_expect_groups": true,
+            "expect_timeout": 2,
+            "expect": [
+                [
+                    {
+                        "className": "android.widget.EditText"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "input_keyword",
+            "action": "input",
+            "native_input": true,
+            "input_timeout": 2,
+            "selectors": [
+                {
+                    "className": "android.widget.EditText"
+                }
+            ],
+            "value": "\u9ec4\u9e64\u697c"
+        },
+        {
+            "name": "submit_search",
+            "action": "click",
+            "selectors": [
+                {
+                    "text": "\u641c\u7d22"
+                },
+                {
+                    "description": "\u641c\u7d22"
+                }
+            ],
+            "expect": [
+                [
+                    {
+                        "text": "\u9ec4\u9e64\u697c",
+                        "minYRatio": 0.2
+                    },
+                    {
+                        "textContains": "\u9ec4\u9e64\u697c",
+                        "minYRatio": 0.2,
+                        "className": "android.widget.TextView"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "back_until_home",
+            "native_home": {
+                "text": "\u9996\u9875"
+            },
+            "home_min_y_ratio": 0.85,
+            "home_max_y_ratio": 1.0,
+            "max_back": 5,
+            "home_check_timeout": 0.2,
+            "back_delay": 0.1,
+            "expect": [
+                [
+                    {
+                        "text": "\u9996\u9875",
+                        "minYRatio": 0.85
+                    },
+                    {
+                        "description": "\u9996\u9875",
+                        "minYRatio": 0.85
+                    }
+                ],
+                [
+                    {
+                        "text": "\u6211\u7684",
+                        "minYRatio": 0.85
+                    },
+                    {
+                        "description": "\u6211\u7684",
+                        "minYRatio": 0.85
+                    }
+                ]
+            ]
+        }
+    ]
+}

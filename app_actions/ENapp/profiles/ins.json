@@ -1,0 +1,18 @@
+{
+    "app": "ins",
+    "package": "com.instagram.android",
+    "selectors": {
+        "feed": {
+            "resourceId": "android:id/list",
+            "scrollable": true
+        },
+        "media": {
+            "resourceId": "com.instagram.android:id/carousel_image_media_group"
+        }
+    },
+    "gestures": {
+        "double_tap_interval": 0.12,
+        "scroll_steps": 40,
+        "settle_seconds": 0.35
+    }
+}

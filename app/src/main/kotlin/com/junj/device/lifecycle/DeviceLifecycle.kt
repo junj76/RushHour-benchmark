@@ -1,7 +1,5 @@
 package com.junj.device.lifecycle
 
-import com.junj.device.adb.AdbExecutor
-import com.junj.device.adb.ProcessAdbExecutor
 import com.junj.device.adb.runAdbRootShellCommand
 import com.junj.device.adb.runAdbShellCommand
 import java.util.concurrent.TimeUnit
@@ -10,10 +8,15 @@ private const val DEFAULT_REBOOT_TIMEOUT_SECONDS = 300L
 private const val REBOOT_POLL_INTERVAL_MS = 1_000L
 private const val SCREEN_WAKE_WAIT_MS = 1_000L
 private const val KEYGUARD_DISMISS_WAIT_MS = 1_000L
-private const val POST_BOOT_STABILIZATION_WAIT_MS = 60_000L
+private const val PRE_TEST_REST_WAIT_MS = 30_000L
 private const val ANDROID_BOOT_ID_PATH = "/proc/sys/kernel/random/boot_id"
 
-/** Reboots the connected Android device and waits for Android boot completion. */
+/** 24 小时：测试期间不允许息屏打断采样（息屏会改变 CPU/IO 负载与前台应用状态）。 */
+private const val SCREEN_OFF_TIMEOUT_MS = 24 * 60 * 60 * 1000L
+
+/** 点亮屏幕的尝试次数：每次都是"唤醒 + 解锁 + 回读确认"。 */
+private const val WAKE_ATTEMPTS = 3
+
 fun rebootDevice(timeoutSeconds: Long = DEFAULT_REBOOT_TIMEOUT_SECONDS) {
     require(timeoutSeconds > 0) { "timeoutSeconds must be greater than 0" }
 
@@ -43,10 +46,7 @@ fun rebootDevice(timeoutSeconds: Long = DEFAULT_REBOOT_TIMEOUT_SECONDS) {
 
             if (bootCompleted && bootIdChanged) {
                 println("Android device has finished booting.")
-                check(wakeAndUnlockDevice(ProcessAdbExecutor)) {
-                    "Failed to wake and unlock the Android device after reboot."
-                }
-                stabilizeAfterBoot()
+                wakeAndUnlockDevice()
                 return
             }
 
@@ -66,52 +66,97 @@ fun rebootDevice(timeoutSeconds: Long = DEFAULT_REBOOT_TIMEOUT_SECONDS) {
     error("Timed out after ${timeoutSeconds}s waiting for Android to boot. Last status: $lastStatus")
 }
 
+private fun wakeAndUnlockDevice() {
+    var lastState = "unknown"
+
+    repeat(WAKE_ATTEMPTS) { attempt ->
+        if (attempt > 0) {
+            println("Screen is still off (attempt ${attempt + 1}/$WAKE_ATTEMPTS), waking again...")
+        }
+
+        val wakeResult = runAdbRootShellCommand("input keyevent KEYCODE_WAKEUP")
+        check(wakeResult.exitCode == 0) { "Failed to wake Android device: ${wakeResult.output.trim()}" }
+        Thread.sleep(SCREEN_WAKE_WAIT_MS)
+
+        val unlockResult = runAdbRootShellCommand("wm dismiss-keyguard")
+        check(unlockResult.exitCode == 0) {
+            "Failed to dismiss Android keyguard: ${unlockResult.output.trim()}"
+        }
+        Thread.sleep(KEYGUARD_DISMISS_WAIT_MS)
+
+        // 退出码正常不代表屏幕真的亮了：必须回读电源/显示状态确认，否则会在黑屏上跑完整轮采样。
+        val powerDump = runAdbShellCommand("dumpsys power").output
+        val displayDump = runAdbShellCommand("dumpsys display").output
+        if (isScreenOn(powerDump, displayDump)) {
+            keepScreenOn()
+            println("Android display is awake and the non-secure keyguard was dismissed.")
+            return
+        }
+        lastState = screenStateSummary(powerDump, displayDump)
+    }
+
+    error(
+        "Android screen did not turn on after $WAKE_ATTEMPTS wake-up attempts (last: $lastState). " +
+            "Aborting instead of benchmarking a dark screen.",
+    )
+}
+
 /**
- * 唤醒屏幕并解除"非安全"锁屏。
+ * 屏幕是否真的点亮：`mWakefulness=Awake`（power）与 `mScreenState=ON`（display）**两个来源都满足**才算亮。
  *
- * 这一步很关键：设备息屏后，`am start -W` 的测量结果不再可信，
- * 而 app_actions 的 Python 脚本会直接以 `Screen is off; unlock and open the app home first`
- * 失败退出（表现为"手机一直没反应"）。所以测试开始前、以及每次启动 App 之前都要调用它。
- *
- * 失败只返回 false（由调用方决定是否告警），不会抛异常中断整轮测试。
+ * 只看 `input keyevent` 的退出码是不够的——命令成功但屏幕仍可能是灭的；也不能用 `dumpsys power` 里的
+ * `Display Power:` 行，因为部分 ROM（含本机）并不打印它。
  */
-fun wakeAndUnlockDevice(adb: AdbExecutor): Boolean {
-    val wakeResult = adb.rootShell("input keyevent KEYCODE_WAKEUP")
-    if (wakeResult.exitCode != 0) {
-        println("[device] 唤醒屏幕失败：${wakeResult.output.trim()}")
-        return false
+internal fun isScreenOn(powerDump: String, displayDump: String): Boolean {
+    val awake = powerDump.lineSequence().any { line ->
+        val trimmed = line.trim()
+        trimmed.startsWith("mWakefulness=") && trimmed.substringAfter('=').trim() == "Awake"
     }
-    Thread.sleep(SCREEN_WAKE_WAIT_MS)
-
-    val unlockResult = adb.rootShell("wm dismiss-keyguard")
-    if (unlockResult.exitCode != 0) {
-        println("[device] 解除锁屏失败：${unlockResult.output.trim()}")
-        return false
+    val displayOn = displayDump.lineSequence().any { line ->
+        val trimmed = line.trim()
+        trimmed.startsWith("mScreenState=") && trimmed.substringAfter('=').trim() == "ON"
     }
-    Thread.sleep(KEYGUARD_DISMISS_WAIT_MS)
-    return true
+    return awake && displayOn
 }
 
-/** 测试期间保持屏幕常亮（`svc power stayon true`，接电源时生效），避免中途息屏。 */
-fun enableStayAwake(adb: AdbExecutor = ProcessAdbExecutor): Boolean {
-    val result = adb.rootShell("svc power stayon true")
-    if (result.exitCode == 0) {
-        println("[device] 已开启屏幕常亮（svc power stayon true）。")
-        return true
+/** 失败信息里附带的简短状态：唤醒态、屏幕态、display suspend blocker 是否被持有。 */
+internal fun screenStateSummary(powerDump: String, displayDump: String): String {
+    fun pick(dump: String, prefix: String) = dump.lineSequence()
+        .map { it.trim() }
+        .firstOrNull { it.startsWith(prefix) }
+        .orEmpty()
+
+    return listOf(
+        pick(powerDump, "mWakefulness="),
+        pick(displayDump, "mScreenState="),
+        pick(powerDump, "mHoldingDisplaySuspendBlocker="),
+    ).filter { it.isNotEmpty() }.joinToString(", ").ifEmpty { "dumpsys reported no power/display state" }
+}
+
+/**
+ * 把系统息屏超时设为 24 小时。
+ *
+ * `settings` 的值**跨重启持久**，所以每轮设一次是幂等的；仍以读回为准：写不进去或没生效就立刻失败，
+ * 否则会变成"以为防了息屏、其实测试中途屏幕灭掉"的隐性错误。
+ * 该设置由 shell 用户即可完成，不需要 root。
+ */
+private fun keepScreenOn() {
+    val timeout = SCREEN_OFF_TIMEOUT_MS.toString()
+    val put = runAdbShellCommand("settings put system screen_off_timeout $timeout")
+    check(put.exitCode == 0) { "Failed to set screen_off_timeout: ${put.output.trim()}" }
+    val readBack = runAdbShellCommand("settings get system screen_off_timeout").output.trim()
+    check(readBack == timeout) {
+        "screen_off_timeout did not take effect: expected $timeout, read back '$readBack'"
     }
-    println("[device] 开启屏幕常亮失败（可忽略）：${result.output.trim()}")
-    return false
+    println("Screen off timeout set to 24h (screen_off_timeout=$readBack ms).")
 }
 
-/** 恢复系统的自动息屏行为。 */
-fun disableStayAwake(adb: AdbExecutor = ProcessAdbExecutor) {
-    adb.rootShell("svc power stayon false")
-}
+fun restBeforeTest(waitMs: Long = PRE_TEST_REST_WAIT_MS) {
+    require(waitMs >= 0) { "waitMs must not be negative, got $waitMs" }
 
-private fun stabilizeAfterBoot() {
-    println("Starting post-boot stabilization wait: $POST_BOOT_STABILIZATION_WAIT_MS ms.")
-    val waitStartNs = System.nanoTime()
-    Thread.sleep(POST_BOOT_STABILIZATION_WAIT_MS)
-    val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - waitStartNs)
-    println("Post-boot stabilization wait finished: elapsed=${elapsedMs} ms.")
+    val startNs = System.nanoTime()
+    println("Pre-test rest started: $waitMs ms (after swap setup, before the measured window).")
+    Thread.sleep(waitMs)
+    val elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNs)
+    println("Pre-test rest finished: elapsed=$elapsedMs ms.")
 }

@@ -1,0 +1,14 @@
+{
+    "app": "tiktok",
+    "package": "com.zhiliaoapp.musically",
+    "packages": [
+        "com.zhiliaoapp.musically",
+        "com.ss.android.ugc.trill",
+        "com.zhiliaoapp.musically.go"
+    ],
+    "gestures": {
+        "scroll_steps": 40,
+        "settle_seconds": 0.4,
+        "watch_seconds": 2.0
+    }
+}

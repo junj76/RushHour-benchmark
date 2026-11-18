@@ -2,8 +2,10 @@ package com.junj.device.pid
 
 import com.junj.device.adb.AdbExecutor
 
-fun getApplicationPid(adb: AdbExecutor, packageName: String): Long? {
-    val result = adb.rootShell("pidof $packageName")
+fun getApplicationPid(adb: AdbExecutor, processName: String): Long? {
+    val result = adb.rootShell("pidof $processName") { result ->
+        result.exitCode == 1 && result.output.isBlank()
+    }
     if (result.exitCode != 0) return null
 
     return result.output
@@ -14,13 +16,13 @@ fun getApplicationPid(adb: AdbExecutor, packageName: String): Long? {
 
 fun waitForApplicationPid(
     adb: AdbExecutor,
-    packageName: String,
+    processName: String,
     timeoutMs: Long = 2_000L,
     pollIntervalMs: Long = 100L,
 ): Long? {
     val deadlineNs = System.nanoTime() + timeoutMs * 1_000_000L
     do {
-        getApplicationPid(adb, packageName)?.let { return it }
+        getApplicationPid(adb, processName)?.let { return it }
         Thread.sleep(pollIntervalMs)
     } while (System.nanoTime() < deadlineNs)
 
@@ -29,15 +31,18 @@ fun waitForApplicationPid(
 
 fun isApplicationProcessAlive(
     adb: AdbExecutor,
-    packageName: String,
+    processName: String,
     pid: Long?,
 ): Boolean {
     if (pid == null) return false
 
-    val result = adb.rootShell("cat /proc/$pid/cmdline")
+    val path = "/proc/$pid/cmdline"
+    val result = adb.rootShell("cat $path") { result ->
+        result.exitCode == 1 && result.output.trim() == "cat: $path: No such file or directory"
+    }
     if (result.exitCode != 0) return false
 
     return result.output
         .substringBefore('\u0000')
-        .trim() == packageName
+        .trim() == processName
 }

@@ -1,0 +1,123 @@
+{
+    "app": "qqmusic",
+    "package": "com.tencent.qqmusic",
+    "validation": "UNVERIFIED_ON_DEVICE",
+    "fast_mode": true,
+    "evidence": "final",
+    "poll_interval": 0.15,
+    "cache_window_size": true,
+    "success_evidence": "screenshot",
+    "home": [
+        [
+            {
+                "resourceId": "com.tencent.qqmusic:id/c2d"
+            }
+        ],
+        [
+            {
+                "text": "音乐馆"
+            },
+            {
+                "text": "首页"
+            },
+            {
+                "text": "我的"
+            }
+        ]
+    ],
+    "steps": [
+        {
+            "name": "open_search",
+            "action": "click",
+            "native_click": true,
+            "clickBounds": true,
+            "selectors": [
+                {
+                    "resourceId": "com.tencent.qqmusic:id/c2d"
+                }
+            ],
+            "native_expect_groups": true,
+            "expect_timeout": 3,
+            "expect": [
+                [
+                    {
+                        "className": "android.widget.EditText"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "input_keyword",
+            "action": "input",
+            "native_input": true,
+            "input_timeout": 2,
+            "selectors": [
+                {
+                    "resourceId": "com.tencent.qqmusic:id/searchItem"
+                },
+                {
+                    "className": "android.widget.EditText",
+                    "focused": true
+                }
+            ],
+            "value": "\u5468\u6770\u4f26"
+        },
+        {
+            "name": "submit_search",
+            "action": "enter",
+            "native_expect_groups": true,
+            "expect_timeout": 5,
+            "trace_timing": true,
+            "expect": [
+                [
+                    {
+                        "descriptionContains": "\u6b4c\u66f2"
+                    },
+                    {
+                        "text": "\u6b4c\u66f2"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "scroll_results",
+            "action": "swipe_up",
+            "native_expect_groups": true,
+            "expect_timeout": 1,
+            "trace_timing": true,
+            "expect": [
+                [
+                    {
+                        "descriptionContains": "\u6b4c\u66f2"
+                    },
+                    {
+                        "text": "\u6b4c\u66f2"
+                    }
+                ]
+            ]
+        },
+        {
+            "name": "return_to_home",
+            "action": "swipe_right",
+            "duration": 0.2,
+            "expect": [
+                [
+                    {
+                        "resourceId": "com.tencent.qqmusic:id/c2d"
+                    }
+                ],
+                [
+                    {
+                        "text": "音乐馆"
+                    },
+                    {
+                        "text": "首页"
+                    },
+                    {
+                        "text": "我的"
+                    }
+                ]
+            ]
+        }
+    ]
+}

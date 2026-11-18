@@ -7,6 +7,7 @@ enum class CommandType {
     DUMPSYS_THERMALSERVICE,
     DUMPSYS_GFXINFO,
     DUMPSYS_MEMINFO,
+    SWAP_IN_STATS,
 }
 
 enum class ResultField {
@@ -44,6 +45,14 @@ enum class ResultField {
 
     // DUMPSYS_MEMINFO
     TOTAL_PSS,
+
+    // SWAP_IN_STATS
+    TOTAL_SWAP_INS,
+    SAMPLED_SWAP_INS,
+    AVG_SWAP_IN_LAT,
+    P90_SWAP_IN_LAT,
+    P99_SWAP_IN_LAT,
+    MAX_SWAP_IN_LAT,
 }
 
 data class RegexKey(
@@ -170,6 +179,36 @@ val commandRegexes = mapOf(
         CommandType.DUMPSYS_MEMINFO,
         ResultField.TOTAL_PSS
     ) to Regex("""TOTAL\sPSS:\s*(\d+)"""),
+
+    RegexKey(
+        CommandType.SWAP_IN_STATS,
+        ResultField.TOTAL_SWAP_INS
+    ) to Regex("""total_swapins:\s*(\d+)"""),
+
+    RegexKey(
+        CommandType.SWAP_IN_STATS,
+        ResultField.SAMPLED_SWAP_INS
+    ) to Regex("""sampled_swapins:\s*(\d+)"""),
+
+    RegexKey(
+        CommandType.SWAP_IN_STATS,
+        ResultField.AVG_SWAP_IN_LAT
+    ) to Regex("""avg_ns:\s*(\d+)"""),
+
+    RegexKey(
+        CommandType.SWAP_IN_STATS,
+        ResultField.P90_SWAP_IN_LAT
+    ) to Regex("""p90_ns:\s*(\d+)"""),
+
+    RegexKey(
+        CommandType.SWAP_IN_STATS,
+        ResultField.P99_SWAP_IN_LAT
+    ) to Regex("""p99_ns:\s*(\d+)"""),
+
+    RegexKey(
+        CommandType.SWAP_IN_STATS,
+        ResultField.MAX_SWAP_IN_LAT
+    ) to Regex("""max_ns:\s*(\d+)"""),
 )
 
 fun regexFindField(commandType: CommandType, resultField: ResultField, output: String) : String? {

@@ -1,133 +1,255 @@
 package com.junj.device.swap
 
 import com.junj.cli.ArgType
+import com.junj.config.DEFAULT_ZSWAP_MAX_POOL_PERCENT
+import com.junj.config.ExperimentConfig
+import com.junj.device.adb.AdbExecutor
 import com.junj.device.adb.runAdbRootShellCommand
 import com.junj.output.logging.Logger
 import com.junj.output.logging.LogType
 
-/**
- * flash swap 文件路径（所有相关命令共用）。
- *
- * 注意：上游原本用 `/data/per_boot/flash.swap`，但当前测试机（华为 HBN-AL00 / EMUI）
- * 在这个目录下执行 mkswap 会让整机直接重启 —— 实测两次（一次 4GB 的自动跑、一次 256MB 的手动跑）
- * 都是 adb 掉线、手机重启、`/data/per_boot` 被清空。
- * 换成普通目录 `/data/local/tmp/` 后，dd → chmod → mkswap → swapon 全流程实测通过
- * （`/proc/swaps` 里能看到 file 类型的 swap）。
- */
-const val FLASH_SWAP_FILE = "/data/local/tmp/flash.swap"
+internal const val FLASH_SWAP_FILE = "/data/per_boot/flash.swap"
+internal const val COMPRESSION_ALGORITHM = "lz4"
+internal data class SwapConfigProbe(val label: String, val command: String)
 
-/**
- * 创建 flash swap 文件前，要求 /data 在 swap 文件之外至少还剩这么多空间（MB）。
- *
- * 把数据分区写满会让系统没有可写空间，轻则卡顿重则直接死机，
- * 所以要留出余量给系统自己的写入。
- */
-private const val FREE_SPACE_MARGIN_MB = 512
+class SwapController(
+    val adb: AdbExecutor,
+    val logger: Logger,
+    val config: ExperimentConfig,
+) {
+    fun enableZram(algorithmName: String = COMPRESSION_ALGORITHM) {
+        val disksize = adb.rootShell("cat $ZRAM_SYSFS/disksize").output.trim()
+        check(disksize.isNotEmpty() && disksize.all { it.isDigit() } && disksize != "0") {
+            "Refusing to reconfigure zRAM: failed to read the current disksize (got '$disksize'). " +
+                "A value of 0 means the device was left reset; reboot so init can rebuild it."
+        }
 
-fun disableZram() {
-    runAdbRootShellCommand("swapoff /dev/block/zram0")
+        adb.rootShell("swapoff $ZRAM_DEVICE")
+        adb.rootShell("echo 1 > $ZRAM_SYSFS/reset")
+        // Must be written after reset and before disksize; the kernel refuses it on an active device.
+        adb.rootShell("echo $algorithmName > $ZRAM_SYSFS/comp_algorithm")
+        adb.rootShell("echo $disksize > $ZRAM_SYSFS/disksize")
+        adb.rootShell("mkswap $ZRAM_DEVICE")
+        adb.rootShell("swapon $ZRAM_DEVICE")
+
+        val readBack = adb.rootShell("cat $ZRAM_SYSFS/comp_algorithm").output.trim()
+        check(readBack.contains("[$algorithmName]")) {
+            "zRAM compression algorithm is not '$algorithmName' after setup: $readBack"
+        }
+        println("zRAM configured: algorithm=$algorithmName, disksize=$disksize")
+        println(adb.rootShell("cat /proc/swaps").output)
+    }
+
+    fun disableZram() {
+        runAdbRootShellCommand("swapoff /dev/block/zram0")
+    }
+
+    fun enableFlashSwap(flashSwapDeviceSizeMB: Int) {
+        val device = mapFlashDevice(adb, flashSwapDeviceSizeMB)
+        checkedZramCommand(adb, "mkswap $device")
+        checkedZramCommand(adb, "swapon $device")
+        println(adb.rootShell("cat /proc/swaps").output)
+    }
+
+    /**
+     * Enables zswap with [algorithmName] as compressor and [maxPoolPercent] as the pool cap, using [zpool] for compressed memory.
+     *
+     * `max_pool_percent` decides whether zswap ever spills to the flash swap: with a large pool the
+     * pages stay compressed in RAM and nothing is written back (written_back_pages stays 0); with a
+     * small pool accept_threshold_percent rejects pages, which are then written straight to the
+     * swap file. All settings are read back so a rejected write is reported, not silently ignored.
+     */
+    fun enableZswap(
+        algorithmName: String = COMPRESSION_ALGORITHM,
+        maxPoolPercent: Int = DEFAULT_ZSWAP_MAX_POOL_PERCENT,
+        zpool: String = "zsmalloc",
+    ) {
+        require(zpool in setOf("zsmalloc", "zbud")) { "Unsupported zswap zpool: $zpool" }
+        require(maxPoolPercent in 1..100) {
+            "max_pool_percent must be between 1 and 100, got $maxPoolPercent"
+        }
+
+        val poolLimit = adb.rootShell("echo $maxPoolPercent > /sys/module/zswap/parameters/max_pool_percent")
+        check(poolLimit.exitCode == 0) {
+            "Failed to set zswap max_pool_percent to $maxPoolPercent: ${poolLimit.output.trim()}"
+        }
+
+        val applied = adb.rootShell("echo $algorithmName > /sys/module/zswap/parameters/compressor")
+        check(applied.exitCode == 0) {
+            "Failed to set the zswap compressor to '$algorithmName': ${applied.output.trim()}"
+        }
+        val poolApplied = adb.rootShell("echo $zpool > /sys/module/zswap/parameters/zpool")
+        check(poolApplied.exitCode == 0) {
+            "Failed to set the zswap zpool to '$zpool': ${poolApplied.output.trim()}"
+        }
+        val zpoolReadBack = adb.rootShell("cat /sys/module/zswap/parameters/zpool").output.trim()
+        check(zpoolReadBack == zpool) {
+            "zswap zpool did not take effect: expected '$zpool', read back '$zpoolReadBack'"
+        }
+        adb.rootShell("echo Y > /sys/module/zswap/parameters/enabled")
+
+        val compressorReadBack = adb.rootShell("cat /sys/module/zswap/parameters/compressor").output.trim()
+        check(compressorReadBack == algorithmName) {
+            "zswap compressor did not take effect: expected '$algorithmName', read back '$compressorReadBack'"
+        }
+        val poolReadBack = adb.rootShell("cat /sys/module/zswap/parameters/max_pool_percent").output.trim()
+        check(poolReadBack == maxPoolPercent.toString()) {
+            "zswap max_pool_percent did not take effect: expected $maxPoolPercent, read back '$poolReadBack'"
+        }
+        println("zSwap enabled: compressor=$compressorReadBack, zpool=$zpoolReadBack, max_pool_percent=$poolReadBack")
+
+        adb.rootShell("mount -t debugfs debugfs /sys/kernel/debug")
+    }
+
+    fun initSwapByType() {
+        // 记录内核版本（实验留痕）
+        val kernelResult = adb.rootShell("uname -a")
+        check(kernelResult.exitCode == 0 && kernelResult.output.isNotBlank()) {
+            "无法读取设备内核版本：exit=${kernelResult.exitCode}, output=${kernelResult.output}"
+        }
+        logger.log(LogType.SUMMARY, "kernelVersion=${kernelResult.output.trim()}")
+
+        // HyperHold 实验设置：cache level，以及清零匿名页寿命采样
+        adb.rootShell("echo 'cachelevel=7' > /sys/block/zram0/hyperhold_cache")
+        adb.rootShell("chmod 660 /sys/block/zram0/hyperhold_report")
+        adb.rootShell("echo reset > /sys/block/zram0/hyperhold_report")
+
+        when (config.swapType) {
+            ArgType.NO_SWAP.code -> {
+                logger.log(LogType.SUMMARY, "config.swapLabel=No Swap")
+                disableZram()
+            }
+            ArgType.ONLY_ZRAM.code -> {
+                logger.log(LogType.SUMMARY, "config.swapLabel=Only zRAM")
+                enableZram()
+            }
+            ArgType.ONLY_FLASH_SWAP.code -> {
+                logger.log(LogType.SUMMARY, "config.swapLabel=Only Flash Swap")
+                disableZram()
+                enableFlashSwap(config.flashSwapDeviceSizeMB)
+            }
+            ArgType.ZSWAP.code, ArgType.ZSWAP_ZBUD.code -> {
+                val zbud = config.swapType == ArgType.ZSWAP_ZBUD.code
+                logger.log(LogType.SUMMARY, "config.swapLabel=${if (zbud) "zswap(zbud)" else "ZSWAP"}")
+                disableZram()
+                enableFlashSwap(config.flashSwapDeviceSizeMB)
+                enableZswap(
+                    maxPoolPercent = config.zswapMaxPoolPercent,
+                    zpool = if (zbud) "zbud" else "zsmalloc",
+                )
+            }
+            ArgType.ZRAM_WRITEBACK.code -> {
+                logger.log(LogType.SUMMARY, "config.swapLabel=zRAM + writeback")
+                val backing = enableMappedZramWriteback(
+                    adb = adb,
+                    backingSizeMB = config.flashSwapDeviceSizeMB,
+                    intervalSec = config.zramWritebackIntervalSec,
+                )
+                logger.log(
+                    LogType.SUMMARY,
+                    buildString {
+                        appendLine("config.zramBackingAction=${backing.action}")
+                        appendLine("config.zramBackingDevice=${backing.backingDevice}")
+                        appendLine("config.zramBackingMiB=${backing.sizeMiB}")
+                    }.trimEnd(),
+                )
+            }
+        }
+        adb.rootShell("""echo 1 > /sys/kernel/mm/swapin_latency/reset""")
+        if (config.swapType != ArgType.NO_SWAP.code) {
+            adb.rootShell("""echo 1 > /sys/kernel/mm/swapin_latency/enable""")
+            adb.rootShell("""echo ${config.swapInLatSampleRate} > /sys/kernel/mm/swapin_latency/sample_rate""")
+        }
+        // Print what actually took effect so it can be compared with the config.* lines in summary.txt.
+        displaySwapConfigsFromPhone()
+    }
+
+    fun displaySwapConfigsFromPhone() {
+        println("=== swap configuration on device (swapType=${config.swapType}) ===")
+        val probes = swapConfigProbes(config.swapType) + dynamicBackingProbes()
+        probes.forEach { probe ->
+            val result = adb.rootShell(probe.command)
+            val text = result.output.trim()
+            val body = when {
+                text.isNotEmpty() -> text
+                result.exitCode != 0 -> "  <unavailable>"
+                else -> "  <empty>"
+            }
+            println("[${probe.label}]")
+            println(body)
+        }
+        println("=== end of swap configuration ===")
+    }
+
+    private fun dynamicBackingProbes(): List<SwapConfigProbe> {
+        if (config.swapType != ArgType.ZRAM_WRITEBACK.code) return emptyList()
+        val backing = adb.rootShell("cat $ZRAM_SYSFS/backing_dev").output.trim()
+        return backingLoopProbes(backing)
+    }
 }
 
-/**
- * 检查 /data 剩余空间是否够放 flash swap 文件（+ 余量），不够就直接报错中止。
- *
- * 背景：dd 写几 GB 的零到 /data 会把数据分区写满，系统随即卡死；
- * 之前 4GB 的配置在真机上就是这么把手机写死的。宁可提前失败，也不要写死设备。
- */
-private fun requireEnoughDataSpace(flashSwapDeviceSizeMb: Int) {
-    val dfResult = runAdbRootShellCommand("df -Pk /data")
-    val availableKb = dfResult.output
-        .lineSequence()
-        .map { it.trim() }
-        .filter { it.isNotEmpty() && !it.startsWith("Filesystem") }
-        .lastOrNull()
-        ?.split(Regex("""\s+"""))
-        ?.getOrNull(3)
-        ?.toLongOrNull()
+internal fun swapConfigProbes(
+    swapType: Int,
+    zramSysfs: String = ZRAM_SYSFS,
+    flashSwapFile: String = FLASH_SWAP_FILE,
+): List<SwapConfigProbe> = buildList {
+    add(SwapConfigProbe("proc/swaps", "cat /proc/swaps"))
+    add(SwapConfigProbe("selinux", "getenforce"))
+    add(SwapConfigProbe("vendor zram props", "getprop | grep -i zram"))
+    add(SwapConfigProbe("zram0 disksize", "cat $zramSysfs/disksize"))
+    add(SwapConfigProbe("zram0 mm_stat", "cat $zramSysfs/mm_stat"))
+    add(SwapConfigProbe("zram0 comp_algorithm", "cat $zramSysfs/comp_algorithm"))
 
-    if (dfResult.exitCode != 0 || availableKb == null) {
-        println(
-            "警告：无法读取 /data 剩余空间（exit=${dfResult.exitCode}），跳过空间检查。" +
-                "原始输出：${dfResult.output.trim().take(200)}"
+    when (swapType) {
+        ArgType.ONLY_FLASH_SWAP.code, ArgType.ZSWAP.code, ArgType.ZSWAP_ZBUD.code ->
+            add(SwapConfigProbe("flash swap device", "dmctl table flash_swap"))
+
+        ArgType.ZRAM_WRITEBACK.code -> {
+            add(SwapConfigProbe("zram0 backing_dev", "cat $zramSysfs/backing_dev"))
+            add(SwapConfigProbe("zram0 bd_stat (4 KiB units)", "cat $zramSysfs/bd_stat"))
+            add(
+                SwapConfigProbe(
+                    "zram0 writeback limit",
+                    "for n in writeback_limit_enable writeback_limit; do " +
+                        "echo \"\$n=\$(cat $zramSysfs/\$n 2>/dev/null)\"; done",
+                ),
+            )
+            add(SwapConfigProbe("per_boot files", "ls -l /data/per_boot/"))
+        }
+
+        else -> Unit // noSwap / onlyZram: the common part already covers them
+    }
+
+    if (ArgType.fromCode(swapType)?.usesZswap == true) {
+        add(
+            SwapConfigProbe(
+                "zswap parameters",
+                "for n in enabled compressor zpool max_pool_percent; do " +
+                    "echo \"\$n=\$(cat /sys/module/zswap/parameters/\$n 2>/dev/null)\"; done",
+            ),
         )
-        return
-    }
-
-    val availableMb = availableKb / 1024
-    val requiredMb = flashSwapDeviceSizeMb + FREE_SPACE_MARGIN_MB
-    check(availableMb >= requiredMb) {
-        "/data 剩余空间不足：可用 ${availableMb}MB，flash swap 需要 ${flashSwapDeviceSizeMb}MB" +
-            "（另留 ${FREE_SPACE_MARGIN_MB}MB 余量）。请用 -s 减小 swap 文件，" +
-            "或先清理 /data 后重试，否则可能把手机写死。"
-    }
-
-    println("/data 可用 ${availableMb}MB，flash swap 文件 ${flashSwapDeviceSizeMb}MB，空间检查通过。")
-}
-
-fun enableFlashSwap(flashSwapDeviceSizeMb: Int) {
-    requireEnoughDataSpace(flashSwapDeviceSizeMb)
-
-    runAdbRootShellCommand("dd if=/dev/zero of=$FLASH_SWAP_FILE bs=1M count=$flashSwapDeviceSizeMb")
-    runAdbRootShellCommand("chmod 600 $FLASH_SWAP_FILE")
-    runAdbRootShellCommand("mkswap $FLASH_SWAP_FILE")
-    runAdbRootShellCommand("swapon $FLASH_SWAP_FILE")
-
-    // mkswap/swapon 失败时 upstream 是不检查退出码的，整轮实验会悄悄跑成"没有 swap"，
-    // 所以这里用 /proc/swaps 确认 swap 真的生效了，没生效就直接报错中止。
-    val swaps = runAdbRootShellCommand("cat /proc/swaps")
-    println(swaps.output)
-    check(swaps.output.contains(FLASH_SWAP_FILE)) {
-        "flash swap 没有生效：$FLASH_SWAP_FILE 不在 /proc/swaps 里。" +
-            "请手动执行 dd / chmod / mkswap / swapon 排查（详见 CHANGES-windows-port.md 第七节）。"
+        add(
+            SwapConfigProbe(
+                "zswap counters",
+                "for n in stored_pages pool_total_size written_back_pages pool_limit_hit; do " +
+                    "echo \"\$n=\$(cat /sys/kernel/debug/zswap/\$n 2>/dev/null)\"; done",
+            ),
+        )
     }
 }
 
-fun enableZswap() {
-    runAdbRootShellCommand("echo Y > /sys/module/zswap/parameters/enabled")
-    println("zSwap enabled: " + runAdbRootShellCommand("cat /sys/module/zswap/parameters/enabled").output)
-    runAdbRootShellCommand("mount -t debugfs debugfs /sys/kernel/debug")
-}
-
-fun initSwapByType(type: Int, flashSwapDeviceSizeMb: Int, logger: Logger) {
-    val kernelResult = runAdbRootShellCommand("uname -a")
-    check(kernelResult.exitCode == 0 && kernelResult.output.isNotBlank()) {
-        "无法读取设备内核版本：exit=${kernelResult.exitCode}, output=${kernelResult.output}"
-    }
-    logger.log(
-        LogType.SUMMARY,
-        "kernelVersion=${kernelResult.output.trim()}",
+internal fun backingLoopProbes(backingDevice: String): List<SwapConfigProbe> {
+    val name = backingDevice.substringAfterLast('/')
+    if (!Regex("loop[0-9]+").matches(name)) return emptyList()
+    return listOf(
+        SwapConfigProbe("$name backing_file", "cat /sys/block/$name/loop/backing_file"),
+        SwapConfigProbe(
+            "$name dio/blocksize",
+            "cat /sys/block/$name/loop/dio /sys/block/$name/queue/logical_block_size",
+        ),
+        SwapConfigProbe(
+            "$name autoclear/size",
+            "cat /sys/block/$name/loop/autoclear /sys/block/$name/size",
+        ),
     )
-
-    //新增 关闭force_swapin_enable
-    //runAdbRootShellCommand("echo 0 > /dev/memcg/memory.force_swapin_enable")
-        // 每轮开始：设采样率 → 清零并开启统计
-    runAdbRootShellCommand("echo 30 > /sys/kernel/mm/swapin_latency/sample_rate")
-    runAdbRootShellCommand("echo 1  > /sys/kernel/mm/swapin_latency/reset")
-    runAdbRootShellCommand("echo 1  > /sys/kernel/mm/swapin_latency/enable")
-
-    // 新增: 每轮开始调整cache level 
-    runAdbRootShellCommand("echo 'cachelevel=7' > /sys/block/zram0/hyperhold_cache")
-    //runAdbRootShellCommand("echo 'cachelevel=0' > /sys/block/zram0/hyperhold_cache")
-    
-    // 每轮清零 HyperHold 匿名页寿命采样
-    runAdbRootShellCommand("chmod 660 /sys/block/zram0/hyperhold_report")
-    runAdbRootShellCommand("echo reset > /sys/block/zram0/hyperhold_report")
-    when (type) {
-        ArgType.NO_SWAP.code -> {
-            logger.log(LogType.SUMMARY, "=== No Swap ===")
-            disableZram()
-        }
-        ArgType.ONLY_ZRAM.code -> logger.log(LogType.SUMMARY, "=== Only zRAM ===")
-        ArgType.ONLY_FLASH_SWAP.code -> {
-            logger.log(LogType.SUMMARY, "=== Only Flash Swap ===")
-            disableZram()
-            enableFlashSwap(flashSwapDeviceSizeMb)
-        }
-        ArgType.ZSWAP.code -> {
-            logger.log(LogType.SUMMARY, "=== ZSWAP ===")
-            disableZram()
-            enableFlashSwap(flashSwapDeviceSizeMb)
-            enableZswap()
-        }
-    }
 }

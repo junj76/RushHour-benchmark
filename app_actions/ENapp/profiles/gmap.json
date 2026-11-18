@@ -1,0 +1,50 @@
+{
+    "app": "gmap",
+    "package": "com.google.android.apps.maps",
+    "keyword": "黄鹤楼",
+    "selectors": {
+        "home": [
+            {
+                "textMatches": "(?i)(Search here|Search Maps|在这里搜索|在此处搜索|搜索地点|搜索此处)"
+            },
+            {
+                "descriptionMatches": "(?i)(Search here|Search Maps|在这里搜索|在此处搜索|搜索地点|搜索此处)"
+            }
+        ],
+        "search_entry": [
+            {
+                "resourceId": "com.google.android.apps.maps:id/search_omnibox_text_box"
+            }
+        ],
+        "search_input": [
+            {
+                "resourceId": "com.google.android.apps.maps:id/search_omnibox_edit_text"
+            },
+            {
+                "className": "android.widget.EditText"
+            }
+        ],
+        "place_ready": [
+            {
+                "textMatches": "(?i)(概览|总览|简介|Overview|评论|评价|Reviews|照片|Photos)"
+            },
+            {
+                "descriptionMatches": "(?i)(概览|总览|简介|Overview|评论|评价|Reviews|照片|Photos)"
+            }
+        ]
+    },
+    "gestures": {
+        "keyboard_search": [
+            0.93,
+            0.955
+        ],
+        "swipe_right": [
+            0.005,
+            0.5,
+            0.65,
+            0.5
+        ],
+        "duration": 0.3,
+        "settle_seconds": 0.3
+    }
+}

@@ -1,0 +1,32 @@
+{
+    "app": "twitch",
+    "package": "tv.twitch.android.app",
+    "selectors": {
+        "home": {
+            "resourceId": "tv.twitch.android.app:id/viewer_bottom_nav_home"
+        },
+        "feed": {
+            "resourceIdMatches": "^(tv\\.twitch\\.android\\.app:id/feed_item_recycler|feed-list)$"
+        },
+        "card": {
+            "resourceIdMatches": "^(tv\\.twitch\\.android\\.app:id/metadata_container|feed-card-.+)$"
+        },
+        "chat": {
+            "resourceId": "tv.twitch.android.app:id/chat_wrapper"
+        },
+        "player": {
+            "resourceId": "tv.twitch.android.app:id/player_pane"
+        },
+        "presenter": {
+            "resourceId": "theatre-screen"
+        },
+        "miniplayer": {
+            "resourceId": "mini-player-controls-overlay"
+        }
+    },
+    "gestures": {
+        "scroll_steps": 40,
+        "dismiss_duration": 0.4,
+        "settle_seconds": 0.35
+    }
+}

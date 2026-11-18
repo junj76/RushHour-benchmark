@@ -2,6 +2,8 @@
 .gradle/
 build/
 **/build/
+**/.verification-build/
+.tools/
 
 # Local Gradle configuration
 local.properties
@@ -48,3 +50,6 @@ Thumbs.db
 *.swp
 *.swo
 *~
+
+# Archived benchmark run data (large)
+20261019logs/

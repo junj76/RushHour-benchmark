@@ -1,0 +1,8 @@
+{
+    "app": "uber",
+    "package": "com.ubercab",
+    "keyword": "华中科技大学",
+    "home_prompt": "您想去哪里？",
+    "home_label": "主页",
+    "return_settle_seconds": 0.4
+}

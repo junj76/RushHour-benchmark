@@ -1,0 +1,23 @@
+{
+    "app": "google",
+    "package": "com.google.android.googlequicksearchbox",
+    "keyword": "华中科技大学",
+    "search_label": "搜索",
+    "gestures": {
+        "browse": [
+            0.5,
+            0.78,
+            0.5,
+            0.30
+        ],
+        "return": [
+            0.005,
+            0.5,
+            0.65,
+            0.5
+        ],
+        "duration": 0.4,
+        "settle_seconds": 0.4,
+        "results_wait": 1.0
+    }
+}

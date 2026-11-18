@@ -1,0 +1,6 @@
+{
+    "app": "weather",
+    "package": "de.wetteronline.wetterapp",
+    "scroll_steps": 55,
+    "settle_seconds": 0.5
+}

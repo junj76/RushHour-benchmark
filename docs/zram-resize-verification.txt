@@ -1,0 +1,53 @@
+Device integration verification
+timestamp=2026-10-16T13:27:22 tests=2 failures=0 skipped=0
+
+Reusing the existing zRAM backing device: /dev/block/loop46 -> /data/per_boot/zram_backing (1073741824 B = 1024 MiB)
+zRAM backing loop verified: /dev/block/loop46 dio=1 blockSize=4096
+Filename				Type		Size		Used		Priority
+/dev/block/zram0                        partition	3868872		96512		-2
+
+Resize control: old backing=/dev/block/loop46 sizeMiB=1024 autoclear=1
+Existing zRAM backing device /dev/block/loop46 is 1024 MiB, requested 4096 MiB -> removing the old backing device and rebuilding
+zRAM backing loop verified: /dev/block/loop48 dio=1 blockSize=4096
+zRAM writeback ready: backing_dev=/dev/block/loop48 -> /data/per_boot/zram_backing (4096 MiB), disksize=3961729024, interval=5s, replaced /dev/block/loop46
+Filename				Type		Size		Used		Priority
+/dev/block/zram0                        partition	3868872		0		-2
+
+Reusing the existing zRAM backing device: /dev/block/loop48 -> /data/per_boot/zram_backing (4294967296 B = 4096 MiB)
+zRAM backing loop verified: /dev/block/loop48 dio=1 blockSize=4096
+Filename				Type		Size		Used		Priority
+/dev/block/zram0                        partition	3868872		0		-2
+
+Resize verification PASS: 1024 MiB autoclear backing -> 4096 MiB direct I/O backing -> reused
+32+0 records in
+32+0 records out
+33554432 bytes (32 M) copied, 0.017 s, 1.8 G/s
+4+0 records in
+4+0 records out
+4194304 bytes (4.0 M) copied, 0.016 s, 250 M/s
+=== buffered control ===
+1024+0 records in
+1024+0 records out
+4194304 bytes (4.0 M) copied, 0.004 s, 0.9 G/s
+dio=0 blocksize=512
+writebackExit=1 bdStat=       0        0        0
+=== direct IO ===
+dio=1 blocksize=4096
+writebackExit=0 bdStat=    1024        0     1024
+1024+0 records in
+1024+0 records out
+4194304 bytes (4.0 M) copied, 0.012 s, 333 M/s
+expectedSHA256=6289789014236ae8f52d23651938c17c3f3b62fad612dda5e6d3e35dba1b29c4 actualSHA256=6289789014236ae8f52d23651938c17c3f3b62fad612dda5e6d3e35dba1b29c4
+readback bdStat=    1024     1024     1024
+SELinux=Enforcing isolated zram1 verification PASS
+
+
+Final writeback check after resize:
+backing=/dev/block/loop48
+sizeSectors=8388608 (4096 MiB)
+dio=1 blockSize=4096
+writebackExit=0
+bd_stat(4KB)=35259 0 35463
+SELinux=Enforcing
+
+Final regression: 74 passed, 2 device tests skipped by default; both device tests passed in the explicit opt-in run above.

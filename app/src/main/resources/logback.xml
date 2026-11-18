@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  SLF4J + Logback 的配置。Logback 会在第一次调用 LoggerFactory.getLogger(...) 时自动加载
+  本文件（classpath 根目录，打包进 jar）。文件名必须是 logback.xml（测试期可用
+  src/test/resources/logback-test.xml 覆盖它），也可以用
+  -Dlogback.configurationFile=/path/to/logback.xml 在启动时替换。
+-->
+<configuration>
+
+    <!--
+      控制台 appender。
+      target 默认是 System.out，与现在 println 的行为一致；若希望诊断日志和报告输出分离
+      （例如 ./gradlew :app:run > out.txt 时不要把日志混进报告），把 target 改成 System.err。
+    -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <target>System.out</target>
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level %logger{24} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!--
+      需要落盘时启用这个 appender（默认注释掉，避免和实验数据的 launch.log /
+      sample.log / summary.log 混在一起）。%d 里的日期每天切一个文件，maxHistory 保留 14 天。
+    -->
+    <!--
+    <appender name="FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>../logs/dsh.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.TimeBasedRollingPolicy">
+            <fileNamePattern>../logs/dsh.%d{yyyyMMdd}.log</fileNamePattern>
+            <maxHistory>14</maxHistory>
+        </rollingPolicy>
+        <encoder>
+            <pattern>%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+    -->
+
+    <!-- 本项目自己的代码放开到 DEBUG；第三方库（clikt / coroutines 等）只留 WARN 以上，避免刷屏。 -->
+    <logger name="com.junj" level="DEBUG"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <!-- <appender-ref ref="FILE"/> -->
+    </root>
+
+</configuration>

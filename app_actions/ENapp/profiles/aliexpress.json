@@ -1,0 +1,4 @@
+{
+    "package": "com.alibaba.aliexpresshd",
+    "settle_seconds": 0.6
+}
