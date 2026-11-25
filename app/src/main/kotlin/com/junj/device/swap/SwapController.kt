@@ -17,20 +17,19 @@ class SwapController(
     val logger: Logger,
     val config: ExperimentConfig,
 ) {
-    fun enableZram(algorithmName: String = COMPRESSION_ALGORITHM) {
-        val disksize = adb.rootShell("cat $ZRAM_SYSFS/disksize").output.trim()
-        check(disksize.isNotEmpty() && disksize.all { it.isDigit() } && disksize != "0") {
-            "Refusing to reconfigure zRAM: failed to read the current disksize (got '$disksize'). " +
-                "A value of 0 means the device was left reset; reboot so init can rebuild it."
-        }
+    fun enableZram(algorithmName: String = COMPRESSION_ALGORITHM): ZramCapacity {
+        val disksize = resolveZramDisksize(adb, config.zramDisksizeMiB)
+        val memLimit = zramMiBToBytes(config.zramMemLimitMiB)
 
-        adb.rootShell("swapoff $ZRAM_DEVICE")
-        adb.rootShell("echo 1 > $ZRAM_SYSFS/reset")
+        checkedZramCommand(adb, "swapoff $ZRAM_DEVICE")
+        checkedZramCommand(adb, "echo 1 > $ZRAM_SYSFS/reset")
         // Must be written after reset and before disksize; the kernel refuses it on an active device.
-        adb.rootShell("echo $algorithmName > $ZRAM_SYSFS/comp_algorithm")
-        adb.rootShell("echo $disksize > $ZRAM_SYSFS/disksize")
-        adb.rootShell("mkswap $ZRAM_DEVICE")
-        adb.rootShell("swapon $ZRAM_DEVICE")
+        checkedZramCommand(adb, "echo $algorithmName > $ZRAM_SYSFS/comp_algorithm")
+        checkedZramCommand(adb, "echo $disksize > $ZRAM_SYSFS/disksize")
+        checkedZramCommand(adb, "echo $memLimit > $ZRAM_SYSFS/mem_limit")
+        val capacity = verifyZramCapacity(adb, disksize, memLimit)
+        checkedZramCommand(adb, "mkswap $ZRAM_DEVICE")
+        checkedZramCommand(adb, "swapon $ZRAM_DEVICE")
 
         val readBack = adb.rootShell("cat $ZRAM_SYSFS/comp_algorithm").output.trim()
         check(readBack.contains("[$algorithmName]")) {
@@ -38,6 +37,7 @@ class SwapController(
         }
         println("zRAM configured: algorithm=$algorithmName, disksize=$disksize")
         println(adb.rootShell("cat /proc/swaps").output)
+        return capacity
     }
 
     fun disableZram() {
@@ -102,6 +102,7 @@ class SwapController(
     }
 
     fun initSwapByType() {
+        var capacity: ZramCapacity? = null
         when (config.swapType) {
             ArgType.NO_SWAP.code -> {
                 logger.log(LogType.SUMMARY, "config.swapLabel=No Swap")
@@ -109,7 +110,7 @@ class SwapController(
             }
             ArgType.ONLY_ZRAM.code -> {
                 logger.log(LogType.SUMMARY, "config.swapLabel=Only zRAM")
-                enableZram()
+                capacity = enableZram()
             }
             ArgType.ONLY_FLASH_SWAP.code -> {
                 logger.log(LogType.SUMMARY, "config.swapLabel=Only Flash Swap")
@@ -132,7 +133,10 @@ class SwapController(
                     adb = adb,
                     backingSizeMB = config.flashSwapDeviceSizeMB,
                     intervalSec = config.zramWritebackIntervalSec,
+                    disksizeMiB = config.zramDisksizeMiB,
+                    memLimitMiB = config.zramMemLimitMiB,
                 )
+                capacity = backing.capacity
                 logger.log(
                     LogType.SUMMARY,
                     buildString {
@@ -143,19 +147,36 @@ class SwapController(
                 )
             }
         }
+        capacity?.let {
+            logger.log(LogType.SUMMARY, "config.zramDisksizeBytes=${it.disksizeBytes}")
+            logger.log(LogType.SUMMARY, "config.zramMemLimitBytes=${it.memLimitBytes}")
+        }
         adb.rootShell("""echo 1 > /sys/kernel/mm/swapin_latency/reset""")
         if (config.swapType != ArgType.NO_SWAP.code) {
             adb.rootShell("""echo 1 > /sys/kernel/mm/swapin_latency/enable""")
             adb.rootShell("""echo ${config.swapInLatSampleRate} > /sys/kernel/mm/swapin_latency/sample_rate""")
         }
         // Print what actually took effect so it can be compared with the config.* lines in summary.txt.
-        displaySwapConfigsFromPhone()
+        displaySwapConfigsFromPhone(capacity)
     }
 
-    fun displaySwapConfigsFromPhone() {
+    fun displaySwapConfigsFromPhone(capacity: ZramCapacity? = null) {
         println("=== swap configuration on device (swapType=${config.swapType}) ===")
         val probes = swapConfigProbes(config.swapType) + dynamicBackingProbes()
         probes.forEach { probe ->
+            // Reuse the initialization snapshot instead of issuing duplicate ADB reads.
+            val cached = capacity?.let {
+                when (probe.command) {
+                    "cat $ZRAM_SYSFS/disksize" -> it.disksizeBytes.toString()
+                    "cat $ZRAM_SYSFS/mm_stat" -> it.mmStat
+                    else -> null
+                }
+            }
+            if (cached != null) {
+                println("[${probe.label}] (verified initialization snapshot)")
+                println(cached)
+                return@forEach
+            }
             val result = adb.rootShell(probe.command)
             val text = result.output.trim()
             val body = when {

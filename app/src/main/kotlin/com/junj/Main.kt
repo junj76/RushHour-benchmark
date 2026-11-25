@@ -33,6 +33,7 @@ fun main(args: Array<String>) = runBlocking {
     val logger = Logger(output.directory)
     val results = ExperimentResults()
     var apps = globalAppInfos
+        .filter { config.selectedAppNames?.contains(it.name) ?: true }
         .take(config.appCount)
         .shuffled(Random(config.randomSeed))
     logRunHeader(logger, config, apps.map { it.name }, output.directory)

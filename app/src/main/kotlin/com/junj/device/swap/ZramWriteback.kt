@@ -17,11 +17,12 @@ internal fun mapFlashDevice(adb: AdbExecutor, sizeMB: Int): String {
 }
 
 /** 新的分区后端入口；保留下面原有文件/loop 实现，避免无关的大段重写。 */
-fun enableMappedZramWriteback(adb: AdbExecutor, backingSizeMB: Int, intervalSec: Int): ZramBackingDeviceResult {
+fun enableMappedZramWriteback(adb: AdbExecutor, backingSizeMB: Int, intervalSec: Int,
+    disksizeMiB: Long? = null, memLimitMiB: Long = 0): ZramBackingDeviceResult {
     require(intervalSec > 0)
     requireZramWritebackSupport(adb)
-    val disksize = adb.rootShell("cat $ZRAM_SYSFS/disksize").output.trim()
-    check(disksize.toLongOrNull()?.let { it > 0 } == true) { "Invalid zRAM disksize; reboot before retrying" }
+    val disksize = resolveZramDisksize(adb, disksizeMiB)
+    val memLimit = zramMiBToBytes(memLimitMiB)
     val device = mapFlashDevice(adb, backingSizeMB)
     listOf(
         "swapoff $ZRAM_DEVICE",
@@ -29,10 +30,12 @@ fun enableMappedZramWriteback(adb: AdbExecutor, backingSizeMB: Int, intervalSec:
         "echo $COMPRESSION_ALGORITHM > $ZRAM_SYSFS/comp_algorithm",
         "echo $device > $ZRAM_SYSFS/backing_dev",
         "echo $disksize > $ZRAM_SYSFS/disksize",
+        "echo $memLimit > $ZRAM_SYSFS/mem_limit",
         "mkswap $ZRAM_DEVICE",
         "swapon $ZRAM_DEVICE",
     ).forEach { checkedZramCommand(adb, it) }
-    return ZramBackingDeviceResult("recreated", device, "", backingSizeMB.toLong())
+    val capacity = verifyZramCapacity(adb, disksize, memLimit)
+    return ZramBackingDeviceResult("recreated", device, "", backingSizeMB.toLong(), capacity)
 }
 
 /** zram0 的 sysfs 目录。 */
@@ -75,6 +78,7 @@ data class ZramBackingDeviceResult(
     val backingDevice: String,
     val backingFile: String,
     val sizeMiB: Long,
+    val capacity: ZramCapacity? = null,
 )
 
 /**

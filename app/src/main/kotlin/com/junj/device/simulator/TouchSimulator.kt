@@ -10,8 +10,23 @@ private const val ACTION_INTERVAL_SECONDS = "0.1"
 
 class TouchSimulator(
     private val adb: AdbExecutor,
-    private val actionsDirectory: Path = locateActionsDirectory(),
+    actionsDirectory: Path? = null,
 ) {
+    private val actionsDirectory: Path by lazy { actionsDirectory ?: locateActionsDirectory() }
+
+    fun simulateMonkey(packageName: String) {
+        require(packageName.matches(Regex("[A-Za-z0-9_.]+"))) { "Invalid app package name: $packageName" }
+        val command = "monkey -p $packageName --throttle 200 -v 200"
+        println("[monkey][$packageName] starting: $command")
+        val result = adb.shell(command)
+        if (result.output.isNotBlank()) println(result.output.trimEnd())
+        if (result.exitCode == 0) {
+            println("[monkey][$packageName] completed")
+        } else {
+            System.err.println("[monkey][$packageName] failed with exit code ${result.exitCode}")
+        }
+    }
+
     /**
      * Runs the configured Python UI scenario for [name].
      *

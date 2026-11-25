@@ -54,7 +54,12 @@ def home_visible(app, screen, cfg):
     if app == "reddit":
         return {"main_top_app_bar_search", "bottom_nav", "feed_lazy_column"} <= ids
     if app == "wiki":
-        return "search_button" in ids and "Main Page" in labels and "search_src_text" not in ids
+        homepage = "Main Page" in labels or (
+            "defaultHomepage" in ids
+            and bool(ids.intersection({"hp_container_inner", "hp_container_outer", "hp_search"}))
+        )
+        return ("search_button" in ids and homepage
+                and not ids.intersection({"search_src_text", "searchresults_list"}))
     if app == "booking":
         return ({cfg["destination_id"], cfg["search_id"]} <= ids
                 and not ids.intersection({cfg["date_confirm_id"].split(":id/")[-1], cfg["results_id"]}))
@@ -120,7 +125,8 @@ class Backend:
         self.device = connect_device()
         self.adb = self.device._dev
         self.cfg = cfg
-        self.adb.shell(["input", "keyevent", "224"], timeout=0.8)
+        # The benchmark already wakes the display. Avoid an extra shell command
+        # during every controller preparation; screen-off remains an error.
         info = self.rpc("deviceInfo", [])
         allowed = cfg.get("packages") or [cfg["package"]]
         stop = time.monotonic() + 2
@@ -136,8 +142,11 @@ class Backend:
 
         import adbutils
         sock = self.adb.create_connection(adbutils.Network.TCP, self.device._device_server_port)
-        sock.settimeout(0.65)
-        with closing(HTTPConnection("127.0.0.1", timeout=0.65)) as connection:
+        # A hierarchy read needs more time under memory pressure. The supervisor
+        # still enforces the unchanged total return budget; do not retry RPCs.
+        timeout = 1.5 if method == "dumpWindowHierarchy" else 1.2 if method == "deviceInfo" else 0.65
+        sock.settimeout(timeout)
+        with closing(HTTPConnection("127.0.0.1", timeout=timeout)) as connection:
             connection.sock = sock
             connection.request("POST", "/jsonrpc/0", json.dumps({"jsonrpc": "2.0", "id": 1,
                                                                "method": method, "params": params}),
@@ -260,6 +269,9 @@ def recover(backend, app, cfg, budget, normal_budget=3, clock=time.monotonic, pa
             progress(result)
 
     while clock() < stop - 0.8:
+        if clock() < pending_until:
+            pause(min(pending_until - clock(), max(0, stop - clock())))
+            continue
         safe_back = False
         try:
             screen = backend.screen()
@@ -270,9 +282,13 @@ def recover(backend, app, cfg, budget, normal_budget=3, clock=time.monotonic, pa
                 result["home_verified"] = True
                 action("home_verified")
                 break
-            if clock() < pending_until:
-                pause(0.15)
-                continue
+            if app == "wiki" and safe_back:
+                ids = {screen.rid(n) for n in screen.nodes}
+                if "progressBar" in ids and not ids.intersection({"search_src_text", "searchresults_list"}):
+                    # Back/restart while the WebView loads discards its progress.
+                    # Wait only within the existing budget; loading is not success.
+                    pending_until = clock() + 0.25
+                    continue
             if app == "weather" and clock() - started < normal_budget:
                 pause(0.1)
                 continue
@@ -331,6 +347,11 @@ def recover(backend, app, cfg, budget, normal_budget=3, clock=time.monotonic, pa
             result["errors"].append(str(exc))
         if clock() >= stop:
             break
+        if not safe_back:
+            # A timed-out query does not prove that navigation or restart is
+            # needed. Do not add a cold launch to an already overloaded device.
+            pause(min(0.25, max(0, stop - clock())))
+            continue
         if not restarted and (clock() - started >= normal_budget or result["back_count"] >= 3):
             restarted = True
             result["restarted"] = True
@@ -340,7 +361,7 @@ def recover(backend, app, cfg, budget, normal_budget=3, clock=time.monotonic, pa
                 pending_until = clock() + 0.8
             except Exception as exc:
                 result["errors"].append(str(exc))
-        elif not restarted and safe_back:
+        elif safe_back and result["back_count"] < 3:
             try:
                 action("back")
                 backend.back()
@@ -378,6 +399,7 @@ def finish_special_app(backend, app, cfg, budget, clock, pause, progress):
     revealed = False
     clicked_close = False
     final_sent = False
+    weather_control_id = None
     confirm_after = started
 
     def record(name):
@@ -389,6 +411,9 @@ def finish_special_app(backend, app, cfg, budget, clock, pause, progress):
             progress(result)
 
     while clock() < deadline - 0.8:
+        if clock() < confirm_after:
+            pause(min(confirm_after - clock(), max(0, deadline - clock())))
+            continue
         try:
             screen = backend.screen()
             foreground = getattr(screen, "foreground_package", None)
@@ -397,19 +422,20 @@ def finish_special_app(backend, app, cfg, budget, clock, pause, progress):
                     "目标应用不在前台；停止操作，避免返回手机桌面"
                 )
 
-            if clock() < confirm_after:
-                pause(0.15)
-                continue
 
             if app == "weather":
                 controls = [
                     n for n in screen.nodes
                     if n.get("class") == "android.widget.ScrollView"
-                    and n.get("scrollable") == "true"
+                    and (final_sent or n.get("scrollable") == "true")
+                    and (weather_control_id is None or n.get("resource-id", "") == weather_control_id)
                 ]
                 if len(controls) != 1:
-                    result["error"] = "天气滚动区域未唯一识别"
-                    break
+                    # Layouts can briefly disappear/change during the gesture.
+                    # Never swipe an ambiguous target; retry only within budget.
+                    result["last_visible_ids"] = sorted({screen.rid(n) for n in screen.nodes if screen.rid(n)})
+                    confirm_after = clock() + 0.25
+                    continue
 
                 if not final_sent:
                     left, top, right, bottom = screen.box(controls[0])
@@ -437,6 +463,7 @@ def finish_special_app(backend, app, cfg, budget, clock, pause, progress):
                         break
 
                     final_sent = True
+                    weather_control_id = controls[0].get("resource-id", "")
                     result["last_swipe_executed"] = True
                     record("weather_final_swipe_up")
                     confirm_after = clock() + 0.3

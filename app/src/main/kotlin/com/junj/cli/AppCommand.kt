@@ -5,6 +5,7 @@ import com.github.ajalt.clikt.parameters.options.default
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.options.required
 import com.github.ajalt.clikt.parameters.options.validate
+import com.github.ajalt.clikt.parameters.types.long
 import com.github.ajalt.clikt.parameters.types.int
 import com.junj.config.DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB
 import com.junj.config.DEFAULT_ZRAM_WRITEBACK_INTERVAL_SEC
@@ -37,7 +38,13 @@ enum class ArgType(val code: Int) {
 }
 
 class AppCommand : CliktCommand(name = "android-app-launch-test") {
-    val rounds: Int by option("--rounds", help = "Number of workload rounds; defaults to 10")
+    val actionMode: Int by option("-c", "--action-mode", help = "App actions: 0=Monkey (default), 1=fixed scripts")
+        .int()
+        .default(0)
+        .validate { require(it in 0..1) { "action mode must be 0 (Monkey) or 1 (fixed scripts)" } }
+
+    val appNames: String? by option("--app-names", help = "Comma-separated workload names; must match -a count")
+    val rounds: Int by option("--rounds", help = "Number of workload rounds; defaults to 5")
         .int()
         .default(com.junj.config.DEFAULT_TEST_ROUND_COUNT)
         .validate { require(it > 0) { "rounds must be greater than 0" } }
@@ -85,9 +92,9 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
     val flashSize: Int? by option(
         "-f",
         "--flash_size",
-        help = "Backing storage size in MB: the flash swap file for -t ${ArgType.ONLY_FLASH_SWAP.code}/" +
+        help = "Backing storage size in MiB (1024*1024 bytes): the flash swap file for -t ${ArgType.ONLY_FLASH_SWAP.code}/" +
             "${ArgType.ZSWAP.code}/${ArgType.ZSWAP_ZBUD.code}, or the zRAM backing file for -t ${ArgType.ZRAM_WRITEBACK.code}. " +
-            "Optional, defaults to $DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB MB.",
+            "Optional, defaults to $DEFAULT_FLASH_SWAP_DEVICE_SIZE_MB MiB.",
     )
         .int()
 
@@ -107,11 +114,30 @@ class AppCommand : CliktCommand(name = "android-app-launch-test") {
     )
         .int()
 
+    val zramDisksize: Long? by option("-d", "--zram-disksize",
+        help = "zRAM logical swap capacity in MB (MiB, 1024*1024 bytes); -t 1/2 only. Default: current device size.").long()
+    val zramMemLimit: Long? by option("-z", "--zram-mem-limit",
+        help = "zRAM compressed memory pool limit in MB (MiB, 1024*1024 bytes); -t 1/2 only. Default: 0 (unlimited).").long()
+
     override fun run() = Unit
 }
 
 fun parseArgs(args: Array<String>): ExperimentConfig {
     val command = AppCommand().also { it.main(args) }
+    val selectedAppNames = command.appNames?.split(',')?.map { it.trim() }
+    if (selectedAppNames != null) {
+        require(selectedAppNames.size == command.appCount) { "--app-names count must match -a" }
+        require(selectedAppNames.distinct().size == selectedAppNames.size) { "--app-names must not contain duplicates" }
+        val knownNames = globalAppInfos.map { it.name }.toSet()
+        require(selectedAppNames.all { it in knownNames }) { "Unknown app names: ${selectedAppNames.filterNot { it in knownNames }}" }
+    }
+    for ((name, value) in listOf("-d" to command.zramDisksize, "-z" to command.zramMemLimit)) {
+        if (value != null) {
+            require(command.type == 1 || command.type == 2) { "$name is only applicable to -t 1/2 (zRAM)" }
+            val minimum = if (name == "-d") 1L else 0L
+            require(value in minimum..(Long.MAX_VALUE / 1048576L)) { "$name is outside the supported MiB range" }
+        }
+    }
     val flashSize = command.flashSize
     if (flashSize != null) {
         require(
@@ -160,13 +186,22 @@ fun parseArgs(args: Array<String>): ExperimentConfig {
             ArgType.ZRAM_WRITEBACK.code ->
                 append("_zramWriteback${flashSwapDeviceSizeMB}_wb${zramWritebackIntervalSec}s")
         }
+        if (command.type == 1 || command.type == 2) {
+            if (command.zramDisksize != null || command.zramMemLimit != null) {
+                append("_d${command.zramDisksize ?: "device"}_z${command.zramMemLimit ?: 0}")
+            }
+        }
         command.logPath?.let { append("_$it") }
     }
     val timestamp = getTimeStamp() + suffix
 
     return ExperimentConfig(
         swapType = command.type,
+        actionMode = command.actionMode,
+        zramDisksizeMiB = command.zramDisksize,
+        zramMemLimitMiB = command.zramMemLimit ?: 0,
         appCount = command.appCount,
+        selectedAppNames = selectedAppNames,
         randomSeed = command.randomSeed,
         timestamp = timestamp,
         outputDirectory = File("../logs/$timestamp"),
