@@ -5,6 +5,8 @@ import argparse
 import json
 from pathlib import Path
 from device_connection import connect_device
+from flow_controls import Screen
+from home_recovery import home_visible
 
 
 def main():
@@ -173,10 +175,9 @@ def main():
             d.press("back")
             wait(
                 lambda: (
-                    bool(web_page("Main Page").exists)
-                    and not bool(articles.exists)
+                    home_visible("wiki", Screen(d.dump_hierarchy(), package), cfg)
                 ),
-                "第二次返回后，未检测到 Main Page 首页",
+                "第二次返回后，未检测到 wikiHow 首页",
             )
             return {"home_verified": True}
 

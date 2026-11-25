@@ -29,4 +29,8 @@ data class ExperimentConfig(
     val swapInLatSampleRate: Int = DEFAULT_SWAP_IN_LAT_SAMPLE_RATE,
     val zramWritebackIntervalSec: Int = DEFAULT_ZRAM_WRITEBACK_INTERVAL_SEC,
     val zswapMaxPoolPercent: Int = DEFAULT_ZSWAP_MAX_POOL_PERCENT,
+    val selectedAppNames: List<String>? = null,
+    val actionMode: Int = 0,
+    val zramDisksizeMiB: Long? = null,
+    val zramMemLimitMiB: Long = 0,
 )

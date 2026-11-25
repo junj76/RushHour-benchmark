@@ -517,3 +517,16 @@ bash test.sh
 **固定环境，复用 seed，记录顺序，多次完整运行，联合解读指标。**
 
 </div>
+
+### zRAM 容量参数
+
+仅适用于 `-t 1`（zRAM）和 `-t 2`（zRAM + writeback）：
+
+- `-d / --zram-disksize`：逻辑交换容量（压缩前），正整数；省略时沿用设备当前 disksize。
+- `-z / --zram-mem-limit`：压缩池内存上限，非负整数；默认 0 表示不限制。
+- 两者输入单位均为 MB（按 MiB 计算，即 1024 × 1024 字节），转换为字节后分别写入 disksize 和 mem_limit。
+- `-d` 限制同时占用的逻辑交换空间，不是累计换出量；`-z` 不设置历史峰值统计 mem_used_max。
+- `-f` 仍控制 Flash 后端容量，`-m` 仍控制 zswap 池占 RAM 的百分比。
+
+例如：`./gradlew run --args="-t 2 -a 12 -d 4096 -z 1024 -f 4096"`。
+这配置了 4 GiB 逻辑交换空间、1 GiB 压缩池上限和 4 GiB Flash 后端。

@@ -56,7 +56,7 @@ data class LaunchStats(
 
 /** `[launch]` 节里 `latency.*` 部分，单位统一为毫秒。 */
 data class LatencyStats(
-    /** 旧口径：TotalTime 总和 / (测试轮数 × 应用数)；失败启动以 0 计入分子。为与历史 summary 可比而保留。 */
+    /** TotalTime 总和 / 实际启动记录数；未执行的应用不计入分母。保留字段名以兼容调用方。 */
     val plannedAvgMs: Long,
     /** 只统计 status=ok 且 TotalTime 可解析的启动。 */
     val validCount: Int,
@@ -292,7 +292,7 @@ fun calculateSummary(
             otherStates = otherStates,
         ),
         latency = LatencyStats(
-            plannedAvgMs = launches.sumOf { it.amStartTotalTime } / (testRoundCount * appCount).coerceAtLeast(1),
+            plannedAvgMs = launches.sumOf { it.amStartTotalTime } / launches.size.coerceAtLeast(1),
             validCount = validLaunches.size,
             validAvgMs = if (validTimes.isEmpty()) 0L else validTimes.sum() / validTimes.size,
             p50Ms = percentile(validTimes, 50),
@@ -437,6 +437,9 @@ fun logRunHeader(
             appendLine("config.flashSwapMiB=${if (usesFlashSwap) config.flashSwapDeviceSizeMB else "-"}")
             appendLine("config.writebackIntervalSec=${if (usesWriteback) config.zramWritebackIntervalSec else "-"}")
             appendLine("config.zswapMaxPoolPercent=${if (usesZswap) config.zswapMaxPoolPercent else "-"}")
+            val usesZram = config.swapType == 1 || config.swapType == 2
+            appendLine("config.zramDisksizeMiB=${if (usesZram) config.zramDisksizeMiB ?: "device" else "-"}")
+            appendLine("config.zramMemLimitMiB=${if (usesZram) config.zramMemLimitMiB else "-"}")
             appendLine("config.testRounds=${config.testRoundCount}")
             appendLine("config.sampleIntervalMs=${config.sampleIntervalMs}")
             appendLine("config.launchIntervalMs=${config.launchIntervalMs}")

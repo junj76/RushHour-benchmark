@@ -35,6 +35,7 @@ class ExperimentRunner(
         val touchSimulator = TouchSimulator(adb)
         val launchedProcesses = ArrayList<LaunchedAppProcess>()
         for ((index, app) in apps.withIndex()) {
+            if (round != 1 && index == 0) continue
             val launchStartNs = System.nanoTime()
             val launchStamp = clock.elapsedMs()
             val nextLaunchNs = launchStartNs + config.launchIntervalMs * 1_000_000L
@@ -47,7 +48,10 @@ class ExperimentRunner(
             }
             val amStartResult = adb.shell(buildAppLaunchCommand(component))
             val launchedPid = waitForApplicationPid(adb, app.processName)
-            touchSimulator.simulate(app.name)
+            when (config.actionMode) {
+                0 -> touchSimulator.simulateMonkey(app.packageName)
+                1 -> touchSimulator.simulate(app.name)
+            }
             sleepUntil(launchStartNs + config.collectDelayMs * 1_000_000L)
             val gfxinfo = adb.shell("dumpsys gfxinfo ${app.packageName}")
             val meminfo = adb.shell("dumpsys meminfo ${app.packageName}")
